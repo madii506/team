@@ -88,6 +88,7 @@ async function ensure() {
     await s`CREATE TABLE IF NOT EXISTS tm_cache (k TEXT PRIMARY KEY, v JSONB, at TIMESTAMPTZ DEFAULT now())`;
     await s`CREATE TABLE IF NOT EXISTS tm_creates (mint TEXT PRIMARY KEY, sig TEXT, name TEXT, symbol TEXT, ns TEXT, nn TEXT, creator TEXT, uri TEXT, img TEXT, t TIMESTAMPTZ)`;
     await s`CREATE INDEX IF NOT EXISTS tm_creates_t ON tm_creates (t)`;
+    await s`CREATE TABLE IF NOT EXISTS tm_imgs (mint TEXT PRIMARY KEY, img TEXT, at TIMESTAMPTZ DEFAULT now())`;
   })();
   try { await ready; } catch (e) { ready = null; throw e; }
   return ready;
@@ -162,10 +163,11 @@ async function sendSigned(tx) {
 
 /* ---------------- market data ---------------- */
 function bestPair(pairs) { return (pairs || []).filter(p => p.chainId === 'solana').sort((a, b) => ((b.liquidity || {}).usd || 0) - ((a.liquidity || {}).usd || 0))[0] || null; }
+const pc = (p, k, tk) => { const v = (p.priceChange || {})[k]; if (v != null) return v; const t = (p.txns || {})[tk]; return t && (t.buys || 0) + (t.sells || 0) === 0 && p.priceUsd ? 0 : null; };
 const shape = p => p && ({
   mint: p.baseToken.address, symbol: clean(p.baseToken.symbol).slice(0, 16), name: clean(p.baseToken.name).slice(0, 48),
   image: (p.info && p.info.imageUrl) || null, mc: Math.round(p.marketCap || p.fdv || 0), liq: Math.round((p.liquidity || {}).usd || 0),
-  vol: Math.round((p.volume || {}).h24 || 0), chg: (p.priceChange || {}).h24 ?? null, ch24: (p.priceChange || {}).h24 ?? null, ch1h: (p.priceChange || {}).h1 ?? null, ch5m: (p.priceChange || {}).m5 ?? null, vol1h: Math.round((p.volume || {}).h1 || 0), pad: p.dexId || null, price: Number(p.priceUsd || 0), pair: p.pairAddress, created: p.pairCreatedAt || null,
+  vol: Math.round((p.volume || {}).h24 || 0), chg: pc(p, 'h24', 'h24'), ch24: pc(p, 'h24', 'h24'), ch1h: pc(p, 'h1', 'h1'), ch5m: pc(p, 'm5', 'm5'), vol1h: Math.round((p.volume || {}).h1 || 0), pad: p.dexId || null, price: Number(p.priceUsd || 0), pair: p.pairAddress, created: p.pairCreatedAt || null,
 });
 async function coin(ca) {
   if (!B58.test(ca)) throw http(400, 'Paste a Solana contract address.');
@@ -180,6 +182,21 @@ async function prices(mints) {
   const j = await getJson(JUP + '/price/v3?ids=' + [...new Set(mints)].join(','), {}, 8000);
   const out = {}; for (const m of mints) if (j[m] && j[m].usdPrice) out[m] = Number(j[m].usdPrice); return out;
 }
+// Jupiter's free API refuses bursts: every scanner call goes through one spaced queue, with one retry on a 429
+let jupQ = Promise.resolve(), jupLast = 0;
+function jupGet(path, ms = 7000) {
+  const run = async () => {
+    for (let i = 0; i < 2; i++) {
+      const wait = jupLast + 380 - Date.now(); if (wait > 0) await new Promise(r => setTimeout(r, wait));
+      jupLast = Date.now();
+      const r = await timed(ms)(JUP + path).catch(() => null);
+      if (r && r.ok) return r.json();
+      if (r && r.status === 429 && i === 0) { await new Promise(res => setTimeout(res, 1600)); continue; }
+      throw http(502, 'Jupiter ' + (r ? r.status : 'timeout'));
+    }
+  };
+  const p = jupQ.then(run, run); jupQ = p.catch(() => { }); return p;
+}
 // Jupiter knows icons, market caps and stats for 100 mints per call
 const jupMem = new Map();
 const jupShape = t => {
@@ -193,7 +210,7 @@ async function jupInfo(mints) {
   const out = {}, need = [];
   for (const m of new Set(mints)) { const h = jupMem.get(m); if (h && Date.now() - h.at < 60e3) out[m] = h.v; else need.push(m); }
   for (let i = 0; i < need.length; i += 100) {
-    try { const j = await getJson(JUP + '/tokens/v2/search?query=' + need.slice(i, i + 100).join(','), {}, 8000); for (const t of (Array.isArray(j) ? j : [])) { const v = jupShape(t); jupMem.set(t.id, { at: Date.now(), v }); out[t.id] = v; } } catch (e) { }
+    try { const j = await jupGet('/tokens/v2/search?query=' + need.slice(i, i + 100).join(','), 8000); for (const t of (Array.isArray(j) ? j : [])) { const v = jupShape(t); jupMem.set(t.id, { at: Date.now(), v }); out[t.id] = v; } } catch (e) { }
   }
   if (jupMem.size > 4000) jupMem.clear();
   return out;
@@ -367,6 +384,8 @@ async function betasOf(q) {
       const top = list.filter(c => (c.liq || 0) >= MIN_LIQ).slice(0, 7);
       for (const c of top) { try { const rows = alignMany(mc, [await candles(c.mint, '15m')]); const r = corrCols(rows, 1, 2); if (r != null) { c.follow = +r.toFixed(3); c.n = rows.length; } } catch (e) { } }
     } catch (e) { }
+    try { const im = await imagesFor([main, ...list].filter(c => !c.image).map(c => c.mint), Date.now() + 6000); for (const c of [main, ...list]) if (!c.image && im[c.mint]) c.image = im[c.mint]; } catch (e) { }
+    main.image = pubImg(main.image); list.forEach(c => { c.image = pubImg(c.image); });
     return { at: Date.now(), main, keys, list, chain: chainN };
   });
 }
@@ -385,8 +404,66 @@ async function freshBetas() {
     for (const r of feed) { const j = info[r.mint]; r.image = j && j.image || (r.img && r.img !== '-' ? r.img : null); r.mc = j ? j.mc : null; r.holders = j ? j.holders : null; }
     await imgFill(feed).catch(() => { });
     for (const r of feed) if (!r.image && r.img && r.img !== '-') r.image = r.img;
+    for (const r of feed) { r.image = pubImg(r.image); if (r.main) r.main.image = pubImg(r.main.image); }
     return { at: Date.now(), stats: st, feed: feed.map(r => ({ mint: r.mint, name: r.name, symbol: r.symbol, creator: r.creator, t: r.t, image: r.image, mc: r.mc, holders: r.holders, main: r.main })) };
   });
+}
+
+/* ---------------- token pictures: every coin gets its real image ----------------
+ * Jupiter and Dexscreener know most icons. For the rest TEAM reads the coin's own metadata from Solana (the Metaplex
+ * metadata account, or the Token-2022 metadata inside the mint), fetches the metadata JSON and keeps its image.
+ * IPFS images are served through /api/img so they load fast and get cached at the edge. */
+const META_PROG = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
+const CID = /(?:ipfs:\/\/|\/ipfs\/)([A-Za-z0-9]{46,64})(\/[^?#]*)?/;
+const gate = u => { const m = String(u).match(CID); return m ? 'https://pump.mypinata.cloud/ipfs/' + m[1] + (m[2] || '') : u; };
+function pubImg(u) {
+  if (!u || u === '-') return null; u = String(u); if (u.startsWith('/api/img?')) return u;
+  const m = u.match(CID); if (m) return '/api/img?c=' + m[1] + (m[2] ? '&p=' + encodeURIComponent(m[2]) : '');
+  return /^https:\/\//.test(u) || /^\/img\//.test(u) ? u : null;
+}
+function metaUri(buf) {
+  try { let o = 65; const str = () => { const n = buf.readUInt32LE(o); o += 4; if (n > 400) throw 0; const v = buf.subarray(o, o + n).toString('utf8').replace(/\0/g, '').trim(); o += n; return v; }; str(); str(); const u = str(); return /^(https?|ipfs):\/\//.test(u) ? u : null; }
+  catch (e) { return null; }
+}
+async function imagesFor(mints, deadline) {
+  const out = {}; mints = [...new Set(mints.filter(m => B58.test(m)))]; if (!mints.length) return out;
+  const rows = await db()`SELECT mint, img, extract(epoch FROM now() - at) AS age FROM tm_imgs WHERE mint = ANY(${mints})`;
+  const known = new Map(rows.map(r => [r.mint, r]));
+  for (const r of rows) if (r.img && r.img !== '-') out[r.mint] = r.img;
+  const need = mints.filter(m => !known.has(m) || (known.get(m).img === '-' && known.get(m).age > 6 * 3600)).slice(0, 80);
+  if (!need.length || Date.now() > deadline) return out;
+  const uris = {};
+  try {
+    const pdas = need.map(m => PublicKey.findProgramAddressSync([Buffer.from('metadata'), META_PROG.toBuffer(), new PublicKey(m).toBuffer()], META_PROG)[0].toBase58());
+    const r = await rpc('getMultipleAccounts', [pdas, { encoding: 'base64' }], x => x && Array.isArray(x.value));
+    r.value.forEach((a, i) => { if (a && a.data) { const u = metaUri(Buffer.from(a.data[0], 'base64')); if (u) uris[need[i]] = u; } });
+  } catch (e) { }
+  const rest = need.filter(m => !uris[m]);
+  if (rest.length) try {
+    const r = await rpc('getMultipleAccounts', [rest, { encoding: 'jsonParsed' }], x => x && Array.isArray(x.value));
+    r.value.forEach((a, i) => { const ex = a && a.data && a.data.parsed && a.data.parsed.info && a.data.parsed.info.extensions; const tm = (ex || []).find(e => e.extension === 'tokenMetadata'); if (tm && tm.state && tm.state.uri) uris[rest[i]] = tm.state.uri; });
+  } catch (e) { }
+  const found = {}, tried = new Set();
+  await pool(Object.entries(uris), 10, async ([m, u]) => {
+    if (Date.now() > deadline) return; tried.add(m);
+    try { const j = await getJson(gate(u), {}, 3500); const im = typeof j.image === 'string' ? j.image.trim() : ''; if (/^(https?|ipfs):\/\//.test(im)) found[m] = im.slice(0, 400); } catch (e) { }
+  });
+  const done = need.filter(m => tried.has(m) || !uris[m]);
+  if (done.length) await db()`INSERT INTO tm_imgs (mint, img, at) SELECT m, i, now() FROM unnest(${done}::text[], ${done.map(m => found[m] || '-')}::text[]) AS x(m, i) ON CONFLICT (mint) DO UPDATE SET img=EXCLUDED.img, at=now()`.catch(() => { });
+  return Object.assign(out, found);
+}
+async function imgProxy(req, res, q) {
+  const c = String(q.c || ''), p = String(q.p || '');
+  if (!/^[A-Za-z0-9]{46,64}$/.test(c) || !/^(\/[\w.\-%]*)*$/.test(p)) { res.statusCode = 400; return res.end(); }
+  for (const g of ['https://pump.mypinata.cloud/ipfs/', 'https://ipfs.io/ipfs/', 'https://dweb.link/ipfs/']) {
+    try {
+      const r = await timed(6000)(g + c + p); const ct = r.headers.get('content-type') || '';
+      if (!r.ok || !/^image\//.test(ct)) continue;
+      const buf = Buffer.from(await r.arrayBuffer()); if (buf.length > 4e6) continue;
+      res.statusCode = 200; res.setHeader('Content-Type', ct); res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=2592000, immutable'); return res.end(buf);
+    } catch (e) { }
+  }
+  res.statusCode = 404; res.setHeader('Cache-Control', 'public, max-age=600'); res.end();
 }
 
 /* ---------------- the scanner: every minute, every pump.fun runner and the betas riding it ----------------
@@ -405,9 +482,9 @@ async function buildScan(prev) {
   const chain = ingest().catch(e => { tick('solana', 0); console.error('ingest', e.message); });
   // 1. the mains: every pump.fun runner on Jupiter's boards right now
   const by = new Map();
-  await Promise.all(Object.entries(BOARDS).map(async ([board, path]) => {
+  await Promise.all(Object.entries(BOARDS).map(async ([board, path]) => {   // queued one by one inside jupGet
     try {
-      const j = await getJson(JUP + path, {}, 9000); tick('jupiter', 1);
+      const j = await jupGet(path, 9000); tick('jupiter', 1);
       for (const t of (Array.isArray(j) ? j : [])) {
         if (!t || !t.id || STABLE.test(t.symbol || '') || !isPump(t)) continue;
         const v = jupShape(t); if (v.mc < 100000 || v.liq < 10000) continue;
@@ -428,17 +505,19 @@ async function buildScan(prev) {
     if (prevC) { prevC.src = [...new Set([...prevC.src, from])]; for (const f of ['mc', 'liq', 'image', 'ch5m', 'ch1h', 'ch24', 'created', 'vol1h', 'holders']) if (prevC[f] == null || prevC[f] === 0) prevC[f] = c[f]; return; }
     cr.by.set(c.mint, { ...c, src: [from] });
   };
-  const keyed = crowds.filter(c => c.keys.length), nap = ms => new Promise(r => setTimeout(r, ms));
+  const keyed = crowds.filter(c => c.keys.length);
+  const prevBy = new Map(((prev && prev.mains) || []).map(m => [m.mint, m.betas || []]));
+  for (const cr of crowds) for (const b of (prevBy.get(cr.m.mint) || [])) add(cr, { mint: b.mint, symbol: b.symbol, name: b.name, image: b.image, mc: b.mc, liq: b.liq, ch5m: null, ch1h: null, ch24: null, created: b.age != null ? new Date(Date.now() - b.age * 60000).toISOString() : null }, (b.src && b.src[0]) || 'carried');
   await Promise.all([
     // Dexscreener answers bursts fine
     pool(keyed, 5, cr => getJson(DEX + '/latest/dex/search?q=' + encodeURIComponent(cr.keys[0]), {}, 7000).then(d => { tick('dexscreener', 1); for (const p of (d.pairs || [])) if (p.chainId === 'solana') add(cr, shape(p), 'dexscreener'); }).catch(() => tick('dexscreener', 0))),
     // Jupiter's free API refuses bursts: one keyword at a time, backing off when it says no
     (async () => {
-      const tj = Date.now();
-      for (const cr of keyed.slice(0, 12)) {
-        if (Date.now() - tj > 8000) break;
-        try { const j = await getJson(JUP + '/tokens/v2/search?query=' + encodeURIComponent(cr.keys[0]), {}, 6000); tick('jupiter', 1); (Array.isArray(j) ? j : []).forEach(t => add(cr, jupShape(t), 'jupiter')); await nap(250); }
-        catch (e) { tick('jupiter', 0); await nap(1300); }
+      const tj = Date.now(), n0 = ((prev && prev.n) || 0) * 5, order = keyed.map((c, i) => keyed[(i + n0) % keyed.length]);
+      for (const cr of order.slice(0, 6)) {
+        if (Date.now() - tj > 7000) break;
+        try { const j = await jupGet('/tokens/v2/search?query=' + encodeURIComponent(cr.keys[0]), 6000); tick('jupiter', 1); (Array.isArray(j) ? j : []).forEach(t => add(cr, jupShape(t), 'jupiter')); }
+        catch (e) { tick('jupiter', 0); }
       }
     })(),
   ]);
@@ -461,9 +540,16 @@ async function buildScan(prev) {
   } catch (e) { tick('solana', 0); }
   // Jupiter's numbers (5m / 1h / 24h moves, total liquidity, icons) for every beta it did not already describe, 100 per call
   try {
-    const need = [...new Set(crowds.flatMap(cr => [...cr.by.values()].filter(c => !c.src.includes('jupiter')).map(c => c.mint)))].slice(0, 400);
+    const need = [...new Set(crowds.flatMap(cr => [...cr.by.values()].filter(c => !c.src.includes('jupiter') || c.ch1h == null).map(c => c.mint)))].slice(0, 300);
     const info = await jupInfo(need);
     for (const cr of crowds) for (const c of cr.by.values()) { const j = info[c.mint]; if (!j) continue; for (const f of ['mc', 'liq', 'ch5m', 'ch1h', 'ch24', 'image', 'holders', 'created', 'vol1h', 'bonded']) if (j[f] != null && j[f] !== 0) c[f] = j[f]; }
+  } catch (e) { }
+  // every coin gets its real picture
+  try {
+    const miss = [...mains.filter(m => !m.image).map(m => m.mint), ...crowds.flatMap(cr => [...cr.by.values()].filter(c => !c.image && ((c.liq || 0) >= 300 || c.src.includes('solana'))).map(c => c.mint))];
+    const im = await imagesFor(miss, t0 + 19000);
+    for (const m of mains) if (!m.image && im[m.mint]) m.image = im[m.mint];
+    for (const cr of crowds) for (const c of cr.by.values()) if (!c.image && im[c.mint]) c.image = im[c.mint];
   } catch (e) { }
   // 4. where every beta sits against its main right now
   const prevMains = new Map(((prev && prev.mains) || []).map(m => [m.mint, new Set((m.all || []).concat((m.betas || []).map(b => b.mint)))]));
@@ -483,11 +569,11 @@ async function buildScan(prev) {
     totB += list.length; totT += tr.length; totBehind += behind; totAhead += ahead;
     const ages = list.map(c => c.age).filter(a => a != null);
     return {
-      mint: m.mint, symbol: m.symbol, name: m.name, image: m.image, mc: m.mc, liq: m.liq, price: m.price, ch5m: m.ch5m, ch1h: m.ch1h, ch24: m.ch24, vol1h: m.vol1h, vol24: m.vol24, holders: m.holders, organic: m.organic, created: m.created, bonded: m.bonded, boards: m.boards, keys,
+      mint: m.mint, symbol: m.symbol, name: m.name, image: pubImg(m.image), mc: m.mc, liq: m.liq, price: m.price, ch5m: m.ch5m, ch1h: m.ch1h, ch24: m.ch24, vol1h: m.vol1h, vol24: m.vol24, holders: m.holders, organic: m.organic, created: m.created, bonded: m.bonded, boards: m.boards, keys,
       isNew: !!(prev && prev.mains && !prevMains.has(m.mint)),
       n: list.length, tradeable: tr.length, behind, ahead, step: tr.length - behind - ahead, fresh: ages.filter(a => a <= 360).length, newest: ages.length ? Math.min(...ages) : null,
       depth: tr.reduce((x, c) => x + (c.liq || 0), 0), pick: tr.slice(0, MAX_BETAS).map(c => c.mint),
-      betas: list.slice(0, 24).map(c => ({ mint: c.mint, symbol: c.symbol, name: c.name, image: c.image, mc: c.mc, liq: c.liq, ch5m: c.ch5m, ch1h: c.ch1h, ch24: c.ch24, g5m: c.g5m, g1h: c.g1h, g24: c.g24, state: c.state, tradeable: c.tradeable, copy: c.copy, after: c.after, age: c.age, src: c.src, isNew: c.isNew })),
+      betas: list.slice(0, 24).map(c => ({ mint: c.mint, symbol: c.symbol, name: c.name, image: pubImg(c.image), mc: c.mc, liq: c.liq, ch5m: c.ch5m, ch1h: c.ch1h, ch24: c.ch24, g5m: c.g5m, g1h: c.g1h, g24: c.g24, state: c.state, tradeable: c.tradeable, copy: c.copy, after: c.after, age: c.age, src: c.src, isNew: c.isNew })),
       all: list.map(c => c.mint).slice(0, 200),
     };
   });
@@ -755,6 +841,7 @@ module.exports = async (req, res) => {
   const url = new URL(req.url, 'http://x');
   const path = String((req.query && req.query.__p) || url.searchParams.get('__p') || url.pathname.replace(/^\/api\/?/, '')).replace(/^\/+|\/+$/g, '');
   const q = Object.fromEntries(url.searchParams);
+  if (req.method === 'GET' && path === 'img') return imgProxy(req, res, q);
   const key = `${req.method} ${path}`, fn = R[key];
   if (!fn) return send(res, 404, { ok: false, error: 'No such endpoint.' });
   try {
