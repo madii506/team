@@ -214,7 +214,7 @@
     if (SC.loading) return; SC.loading = true;
     try {
       const d = await api('scan'); const same = SC.d && d.n === SC.d.n; SC.d = d; if (same) SC.prev = d;
-      if (same) SC.wait = Date.now() + 5000; else { const prev = SC.prev; SC.prev = d; renderFeed(prev, d); lexUpdate(); renderScan(); renderRadar(); if (!SC.first) say(`Scan ${d.n}: ${d.totals.mains} mains, ${d.totals.tradeable} tradeable betas`); SC.first = false; }
+      if (same) SC.wait = Date.now() + 5000; else { const prev = SC.prev; SC.prev = d; renderFeed(prev, d); lexUpdate(); renderScan(); renderRadar(); webNext(false); if (!SC.first) say(`Scan ${d.n}: ${d.totals.mains} mains, ${d.totals.tradeable} tradeable betas`); SC.first = false; }
     } catch (e) { SC.wait = Date.now() + 10000; if (!SC.d) $('#scBoard').innerHTML = `<div class="empty">${esc(e.message)} Retrying…</div>`; }
     SC.loading = false;
   }
@@ -241,7 +241,7 @@
     const boards = (m.boards || []).map(b => ({ trending: 'trending', traded: 'traded', organic: 'organic', hot: 'hot 5m' }[b])).join(' · ');
     return `<article class="srw${open ? ' open' : ''}${m.isNew ? ' new' : ''}" data-m="${esc(m.mint)}" style="animation-delay:${Math.min(i, 12) * 40}ms">
       <div class="srw-top" data-act="open">
-        <span class="rk mono">${String(i + 1).padStart(2, '0')}</span>
+        <span class="rnk mono">${String(i + 1).padStart(2, '0')}</span>
         <div class="sr-main">${av(m, 'lg')}<div class="nm"><b>$${esc(m.symbol)}${m.isNew ? '<em class="nw mono">new</em>' : ''}</b><span>${esc(m.name)} · ${ago(m.created)} · ${esc(boards)}</span>
           <div class="ms mono"><span>mcap <b>${usd(m.mc)}</b></span><span>1h ${pctc(m.ch1h)}</span><span>24h ${pctc(m.ch24, 0)}</span><span>vol 1h <b>${usd(m.vol1h)}</b></span></div></div></div>
         <div class="sr-crowd"><div class="stack">${stack || ''}</div><span class="mono"><b>${m.n}</b> beta${m.n === 1 ? '' : 's'} · <b>${m.tradeable}</b> tradeable${m.fresh ? ` · <b>${m.fresh}</b> new in 6h` : ''}</span></div>
@@ -307,10 +307,60 @@
     $('#lexT').innerHTML = `Right now <b>$${esc(m.symbol)}</b> is ${dir(m.ch1h)} this hour while <b>$${esc(b.symbol)}</b> is ${dir(b.ch1h)}. That puts $${esc(b.symbol)} <b>${pct(Math.abs(b.g1h))} ${b.g1h < 0 ? 'behind' : 'ahead of'}</b> its main. With the default ${band}% band, ${act}. Across this scan, <b>${d.totals.behind}</b> tradeable betas sit a band behind their main and <b>${d.totals.ahead}</b> a band ahead. A live team measures from its own kickoff rather than the last hour, but the rule is the same.`;
   }
   function heroLive() {
-    const d = SC.d; if (!d) return; const left = Math.max(0, Math.ceil((d.at + d.every * 1000 - Date.now()) / 1000) + 1);
-    $('#hLiveT').innerHTML = innerWidth < 560 ? `live · <b>${d.totals.mains}</b> runners · <b>${d.totals.tradeable}</b> teamable betas · <b>${left}s</b>` : `live · scan <b>#${d.n}</b> · <b>${d.totals.mains}</b> pump.fun runners · <b>${d.totals.tradeable}</b> betas you can team with · next scan <b>${left}s</b>`;
+    const d = SC.d; if (!d) return; const left = Math.max(0, Math.ceil((d.at + d.every * 1000 - Date.now()) / 1000) + 1), w = WEB.team;
+    const txt = w ? `<span class="hlm">${av(w.m, 'sm')}<b>$${esc(w.m.symbol)}</b></span> + <b>${w.betas.length}</b> beta${w.betas.length > 1 ? 's' : ''}${innerWidth < 560 ? '' : ' you can team right now'}` : `live · <b>${d.totals.mains}</b> pump.fun runners · <b>${d.totals.tradeable}</b> teamable betas`;
+    $('#hLiveT').innerHTML = txt + (innerWidth < 560 ? '' : ` · next scan <b>${left}s</b>`); $('#hTeam').hidden = !w;
   }
-  $('#hLive').addEventListener('click', () => goTo('scan'));
+  /* ---------------- the live web: the hero's team is a real main and its real betas, cycling through the scan ---------------- */
+  const WEB = { list: [], i: 0, team: null, raf: 0, t: 0 };
+  function webTeams() {
+    const d = SC.d; if (!d) return [];
+    const pool2 = d.mains.filter(m => m.tradeable >= 3), base = pool2.length >= 2 ? pool2 : d.mains.filter(m => m.tradeable >= 1);
+    return base.sort((a, b) => (b.tradeable - a.tradeable) || (b.behind - a.behind) || ((b.vol1h || 0) - (a.vol1h || 0))).slice(0, 6)
+      .map(m => ({ m, betas: m.betas.filter(b => b.tradeable).sort((a, b) => (!!b.image - !!a.image) || ((b.liq || 0) - (a.liq || 0))).slice(0, 6) }));
+  }
+  function webSet(team) {
+    const el = $('#web'); WEB.team = team; if (!team) { el.innerHTML = ''; if (hero && hero.setCount) hero.setCount(6); return; }
+    const node = (c, cls, lab) => `<div class="wn ${cls}" data-wm="${esc(team.m.mint)}"${cls === 'b' ? ` data-wb="${esc(c.mint)}"` : ''}><span class="wi">${c.image ? `<img src="${esc(c.image)}" alt="" referrerpolicy="no-referrer" onerror="this.outerHTML='<i>${esc((c.symbol || '?')[0])}</i>'">` : `<i>${esc((c.symbol || '?')[0])}</i>`}</span><span class="wlab">${lab}</span></div>`;
+    el.innerHTML = node(team.m, 'm', `<b>$${esc(team.m.symbol)}</b> · the main<span class="wx"> · ${pct(team.m.ch1h)} 1h</span>`) + team.betas.map(b => node(b, 'b', `<b>$${esc(b.symbol)}</b> ${b.g1h != null ? `<span class="${b.g1h < 0 ? 'up' : b.g1h > SC.d.band ? 'dn' : ''}">${pct(b.g1h)}</span>` : ''}`)).join('');
+    if (hero && hero.setCount) hero.setCount(team.betas.length);
+    heroLive(); webLoop();
+  }
+  function webNext(advance) {
+    const list = webTeams(); WEB.list = list; if (!list.length) return webSet(null);
+    let i = WEB.team ? list.findIndex(x => x.m.mint === WEB.team.m.mint) : -1;
+    if (i < 0) i = 0; else if (advance) i = (i + 1) % list.length;
+    if (!WEB.team || reduce || list[i].m.mint === WEB.team.m.mint) return webSet(list[i]);
+    const el = $('#web'); el.classList.add('swap'); setTimeout(() => { webSet(list[i]); el.classList.remove('swap'); if (hero && hero.pulse && hero.done) hero.pulse(); }, 450);
+  }
+  function webLoop() {
+    if (WEB.raf) return;
+    const f = () => {
+      WEB.raf = 0; if (!hero || !hero.nodes || !WEB.team) return;
+      if (scrollY < innerHeight * 1.1) {
+        const n = hero.nodes(); if (n) {
+          const els = $$('#web .wn');
+          els.forEach((e, k) => {
+            const p = k === 0 ? n.main : n.betas[k - 1]; if (!p) return;
+            const r = Math.max(10, p.r * (k === 0 ? .86 : 1.05)), wi = e.firstElementChild;
+            if (wi.style.width !== 2 * r + 'px') { wi.style.width = wi.style.height = 2 * r + 'px'; }
+            e.style.transform = `translate(${(p.x - e.offsetWidth / 2).toFixed(1)}px,${(p.y - r).toFixed(1)}px)`; e.style.opacity = k === 0 ? 1 : Math.min(1, p.k * 1.2);
+          });
+        }
+      }
+      WEB.raf = requestAnimationFrame(f);
+    };
+    WEB.raf = requestAnimationFrame(f);
+  }
+  setInterval(() => { if (!document.hidden && WEB.list.length > 1 && scrollY < innerHeight) webNext(true); }, 11000);
+  $('#web').addEventListener('click', e => {
+    const n = e.target.closest('.wn'); if (!n) return; const mint = n.dataset.wm; SC.open.add(mint);
+    if (SC.only && mainOf(mint) && !mainOf(mint).tradeable) { SC.only = false; $('#scOnly').checked = false; }
+    renderScan(); const row = $(`.srw[data-m="${mint}"]`); goTo(row || 'scan', 90);
+    if (n.dataset.wb && row) setTimeout(() => { const br = $(`.bt-r[data-b="${n.dataset.wb}"]`, row); if (br) { br.classList.remove('hl'); void br.offsetWidth; br.classList.add('hl'); } }, 900);
+  });
+  $('#hTeam').addEventListener('click', e => { e.stopPropagation(); const w = WEB.team; if (!w) return; const m = mainOf(w.m.mint) || w.m; const sel = selOf(m), betas = m.betas.filter(b => sel.has(b.mint)); setTeam(m, betas.length ? betas : w.betas.slice(0, S.cfg.maxBetas)); goTo('pair'); });
+  $('#hLive').addEventListener('click', e => { if (!e.target.closest('button')) goTo('scan'); });
   $('#top').addEventListener('click', e => { if (e.target.closest('form,a,button,.hlive,.radar')) return; if (hero && hero.done && hero.pulse) hero.pulse(); });
   function renderRadar() {
     const top = SC.d.mains.filter(m => m.n).slice(0, 16); if (!top.length) return;
