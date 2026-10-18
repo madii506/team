@@ -26,7 +26,7 @@
   const NB = 6;                                             // how many betas the main finds
 
   // the field of launches: one in fifteen is a beta, the rest is noise
-  const FIELD = Array.from({ length: 90 }, (_, i) => ({
+  const FIELD = Array.from({ length: 64 }, (_, i) => ({
     u: .04 + rnd(i, 1) * .92, v: .06 + rnd(i, 2) * .86, born: TL.feed0 + rnd(i, 3) * (TL.feed1 - TL.feed0),
     s: .55 + rnd(i, 4) * .6, w: rnd(i, 5) * 6.28, d: rnd(i, 6), beta: -1,
   }));
@@ -63,7 +63,9 @@
   window.TeamHero = function (canvas, opts = {}) {
     const reduce = !!opts.reduce;
     let skipAt = null, offset = reduce ? TL.END : 0, done = false, hero = null, labels = { main: '', betas: [] };
-    let pumpAt = -1e9, lastCycle = -1, clasped = false, count = NB, last = null; const vis = new Array(NB).fill(1), cur = new Array(NB).fill(null);
+    let pumpAt = -1e9, lastCycle = -1, clasped = false, count = NB, last = null;
+    // where every coin is drawn this frame (grid cells), so real token pictures can ride on top of the dots
+    const FR = { main: { x: 0, y: 0, r: 0, a: 0 }, betas: Array.from({ length: NB }, () => ({ x: 0, y: 0, r: 0, a: 0, found: false })), field: FIELD.map(() => ({ x: 0, y: 0, r: 0, a: 0, found: false })), t: 0 }; const vis = new Array(NB).fill(1), cur = new Array(NB).fill(null);
     const api = {};
     function finish() {
       if (done) return; done = true;
@@ -136,14 +138,16 @@
         // ---- 1–3. the field of launches, the scan, the found betas ----
         const ringMax = Math.hypot(gw, gh) * .62, scanK = ease.out((t - TL.scan0) / (TL.scan1 - TL.scan0)), ringR = scanK * ringMax;
         const scanned = c => { const dx = c.u * gw - L.cx, dy = c.v * gh - (L.my + L.rise); const d = Math.hypot(dx, dy); return t > TL.scan0 && ringR >= d ? (d / ringMax) : null; };
+        FR.t = t; for (const f of FR.field) f.a = 0; for (const b of FR.betas) b.a = 0;
         if (t < TL.fly1 + .2) {
-          for (const c of FIELD) {
+          for (let fi = 0; fi < FIELD.length; fi++) { const c = FIELD[fi];
             const pop = ease.back((t - c.born) / .28); if (pop <= 0) continue;
             let x = c.u * gw, y = c.v * gh + (t < TL.fly0 && !reduce ? Math.sin(t * 3 + c.w) * .25 : 0), r = base * c.s * pop, a = c.beta >= 0 ? 1 : .78;
             const sd = scanned(c), tf = sd != null ? TL.scan0 + (TL.scan1 - TL.scan0) * Math.pow(sd, 1 / 3) * .9 : null, since = tf != null ? t - tf : -1;
             if (c.beta < 0) {
               if (since > 0) a *= 1 - .55 * clamp(since / .35);
               a *= 1 - clamp((t - TL.fade0) / (TL.fade1 - TL.fade0)); if (a <= .02) continue;
+              { const f = FR.field[fi]; f.x = x; f.y = y; f.r = r; f.a = a; f.found = since > 0; }
               coin(g, x, y, r, a, 210); continue;
             }
             // a beta: flash when the scan finds it, then fly into its slot with a swirl
@@ -156,6 +160,7 @@
               r = r + (L.r - r) * k;
             }
             if (k >= 1) continue;                                   // from here the formation draws it
+            { const f = FR.betas[c.beta]; f.x = x; f.y = y; f.r = r; f.a = a; f.found = since > 0; }
             coin(g, x, y, r, a, 236);
           }
           // the scan ring itself
@@ -186,7 +191,11 @@
         }
 
         // ---- the formation: betas, then the main on top ----
-        if (settled) for (let i = 0; i < NB; i++) if (bpos[i].k > .02) coin(g, bpos[i].x, bpos[i].y, L.r * bpos[i].k, 1, 236);
+        if (settled) for (let i = 0; i < NB; i++) {
+          if (FR.betas[i].a === 0) { const f = FR.betas[i]; f.x = bpos[i].x; f.y = bpos[i].y; f.r = L.r * bpos[i].k; f.a = bpos[i].k > .02 ? Math.min(1, bpos[i].k * 1.3) : 0; f.found = true; }
+          if (bpos[i].k > .02) coin(g, bpos[i].x, bpos[i].y, L.r * bpos[i].k, 1, 236);
+        }
+        FR.main.x = mx; FR.main.y = my; FR.main.r = mr; FR.main.a = mr > .4 ? 1 : 0;
         if (mr > .3) {
           coin(g, mx, my, mr, 1, 255);
           if (mr > 2.2) { g.lineWidth = .9; g.strokeStyle = 'rgb(140,140,140)'; g.beginPath(); g.arc(mx, my, mr * .66, 0, Math.PI * 2); g.stroke(); }
@@ -223,6 +232,7 @@
     // how many betas the idle web shows (the real team in it may have fewer than six)
     api.setCount = n => { count = Math.max(0, Math.min(NB, n | 0)); hero.wake(); };
     // where the main and each beta sit right now, in CSS pixels relative to the canvas
+    api.frame = () => ({ cell: hero.cell, t: FR.t, end: TL.END, main: FR.main, betas: FR.betas, field: FR.field, kinds: FIELD.map(c => c.beta >= 0) });
     api.nodes = () => { if (!last) return null; const c = hero.cell; return { main: { x: last.mx * c, y: last.my * c, r: last.mr * c }, betas: last.b.map(b => ({ x: b.x * c, y: b.y * c, r: b.r * c, k: b.k })) }; };
     api.led = hero; api.TL = TL;
     Object.defineProperty(api, 'done', { get: () => done });

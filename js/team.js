@@ -213,7 +213,9 @@
   async function loadScan() {
     if (SC.loading) return; SC.loading = true;
     try {
-      const d = await api('scan'); const same = SC.d && d.n === SC.d.n; SC.d = d; if (same) SC.prev = d;
+      let d = null; if (window.__scanP) { d = await window.__scanP; window.__scanP = null; }
+      if (!d || !d.mains) d = await api('scan');
+      const same = SC.d && d.n === SC.d.n; SC.d = d; if (same) SC.prev = d;
       if (same) SC.wait = Date.now() + 5000; else { const prev = SC.prev; SC.prev = d; renderFeed(prev, d); lexUpdate(); renderScan(); renderRadar(); webNext(false); if (!SC.first) say(`Scan ${d.n}: ${d.totals.mains} mains, ${d.totals.tradeable} tradeable betas`); SC.first = false; }
     } catch (e) { SC.wait = Date.now() + 10000; if (!SC.d) $('#scBoard').innerHTML = `<div class="empty">${esc(e.message)} Retrying…</div>`; }
     SC.loading = false;
@@ -307,7 +309,7 @@
     $('#lexT').innerHTML = `Right now <b>$${esc(m.symbol)}</b> is ${dir(m.ch1h)} this hour while <b>$${esc(b.symbol)}</b> is ${dir(b.ch1h)}. That puts $${esc(b.symbol)} <b>${pct(Math.abs(b.g1h))} ${b.g1h < 0 ? 'behind' : 'ahead of'}</b> its main. With the default ${band}% band, ${act}. Across this scan, <b>${d.totals.behind}</b> tradeable betas sit a band behind their main and <b>${d.totals.ahead}</b> a band ahead. A live team measures from its own kickoff rather than the last hour, but the rule is the same.`;
   }
   function heroLive() {
-    const d = SC.d; if (!d) return; const left = Math.max(0, Math.ceil((d.at + d.every * 1000 - Date.now()) / 1000) + 1), w = WEB.team;
+    const d = SC.d; if (!d || !$('#hLiveT')) return; const left = Math.max(0, Math.ceil((d.at + d.every * 1000 - Date.now()) / 1000) + 1), w = WEB.team;
     const txt = w ? `<span class="hlm">${av(w.m, 'sm')}<b>$${esc(w.m.symbol)}</b></span> + <b>${w.betas.length}</b> beta${w.betas.length > 1 ? 's' : ''}${innerWidth < 720 ? '' : ' you can team right now'}` : `live · <b>${d.totals.mains}</b> pump.fun runners · <b>${d.totals.tradeable}</b> teamable betas`;
     $('#hLiveT').innerHTML = txt + (innerWidth < 720 ? '' : ` · next scan <b>${left}s</b>`); $('#hTeam').hidden = !w;
   }
@@ -315,14 +317,25 @@
   const WEB = { list: [], i: 0, team: null, raf: 0, t: 0 };
   function webTeams() {
     const d = SC.d; if (!d) return [];
-    const pool2 = d.mains.filter(m => m.tradeable >= 3), base = pool2.length >= 2 ? pool2 : d.mains.filter(m => m.tradeable >= 1);
-    return base.sort((a, b) => (b.tradeable - a.tradeable) || (b.behind - a.behind) || ((b.vol1h || 0) - (a.vol1h || 0))).slice(0, 6)
+    const pics = m => m.betas.filter(b => b.tradeable && b.image).length;
+    const base = d.mains.filter(m => m.tradeable >= 1 && m.image);
+    return base.sort((a, b) => (Math.min(6, pics(b)) - Math.min(6, pics(a))) || (b.tradeable - a.tradeable) || (b.behind - a.behind) || ((b.vol1h || 0) - (a.vol1h || 0))).slice(0, 6)
       .map(m => ({ m, betas: m.betas.filter(b => b.tradeable).sort((a, b) => (!!b.image - !!a.image) || ((b.g1h != null) - (a.g1h != null)) || ((b.liq || 0) - (a.liq || 0))).slice(0, 6) }));
   }
+  const pic = c => c.image ? `<img src="${esc(c.image)}" alt="$${esc(c.symbol)}" referrerpolicy="no-referrer" decoding="async" onerror="this.outerHTML='<i>${esc((c.symbol || '?')[0])}</i>'">` : `<i>${esc((c.symbol || '?')[0])}</i>`;
   function webSet(team) {
     const el = $('#web'); WEB.team = team; if (!team) { el.innerHTML = ''; if (hero && hero.setCount) hero.setCount(6); return; }
-    const node = (c, cls, lab) => `<div class="wn ${cls}" data-wm="${esc(team.m.mint)}"${cls === 'b' ? ` data-wb="${esc(c.mint)}"` : ''} title="$${esc(c.symbol)}"><span class="wi">${c.image ? `<img src="${esc(c.image)}" alt="$${esc(c.symbol)}" referrerpolicy="no-referrer" onerror="this.outerHTML='<i>${esc((c.symbol || '?')[0])}</i>'">` : `<i>${esc((c.symbol || '?')[0])}</i>`}</span>${lab ? `<span class="wlab">${lab}</span>` : ''}</div>`;
-    el.innerHTML = node(team.m, 'm', '') + team.betas.map(b => node(b, 'b', `<b>$${esc(b.symbol)}</b> ${b.g1h != null ? `<span class="${b.g1h < 0 ? 'up' : b.g1h > SC.d.band ? 'dn' : ''}">${pct(b.g1h)}</span>` : ''}`)).join('');
+    const node = (c, cls, lab, extra = '') => `<div class="wn ${cls}" data-wm="${esc(team.m.mint)}"${cls === 'b' ? ` data-wb="${esc(c.mint)}"` : ''}${extra} title="$${esc(c.symbol)}"><span class="wi">${pic(c)}</span>${lab ? `<span class="wlab">${lab}</span>` : ''}</div>`;
+    let html = node(team.m, 'm', '') + team.betas.map((b, k) => node(b, 'b', `<b>$${esc(b.symbol)}</b> ${b.g1h != null ? `<span class="${b.g1h < 0 ? 'up' : b.g1h > SC.d.band ? 'dn' : ''}">${pct(b.g1h)}</span>` : ''}`, ` data-k="${k}"`)).join('');
+    // while the intro runs, the field of launches is real coins from this scan too
+    const fr = hero && hero.frame && hero.frame();
+    if (fr && fr.t < fr.end && !WEB.fieldDone) {
+      const used = new Set([team.m.mint, ...team.betas.map(b => b.mint)]), seen = new Set(), crowd = [];
+      for (const m of SC.d.mains) for (const c of [m, ...m.betas]) if (c.image && !used.has(c.mint) && !seen.has(c.image)) { seen.add(c.image); crowd.push(c); }
+      const slots = fr.kinds.map((b, i) => b ? -1 : i).filter(i => i >= 0).filter((_, j) => j % 2 === 0);
+      html += crowd.slice(0, slots.length).map((c, j) => `<div class="wn f" data-f="${slots[j]}" aria-hidden="true"><span class="wi">${pic(c)}</span></div>`).join('');
+    }
+    el.innerHTML = html;
     if (hero && hero.setCount) hero.setCount(team.betas.length);
     heroLive(); webLoop();
   }
@@ -330,23 +343,26 @@
     const list = webTeams(); WEB.list = list; if (!list.length) return webSet(null);
     let i = WEB.team ? list.findIndex(x => x.m.mint === WEB.team.m.mint) : -1;
     if (i < 0) i = 0; else if (advance) i = (i + 1) % list.length;
-    if (!WEB.team || reduce || list[i].m.mint === WEB.team.m.mint) return webSet(list[i]);
+    if (!WEB.team || reduce || list[i].m.mint === WEB.team.m.mint) { if (WEB.team && list[i].m.mint === WEB.team.m.mint && $('#web .wn.f')) return; return webSet(list[i]); }
     const el = $('#web'); el.classList.add('swap'); setTimeout(() => { webSet(list[i]); el.classList.remove('swap'); if (hero && hero.pulse && hero.done) hero.pulse(); }, 450);
   }
   function webLoop() {
     if (WEB.raf) return;
+    const place = (e, p, scale, op, min) => {
+      const r = Math.max(min, p.r * scale), wi = e.firstElementChild, d = (2 * r).toFixed(1) + 'px';
+      if (wi.style.width !== d) wi.style.width = wi.style.height = d;
+      e.style.transform = `translate(${(p.x - e.offsetWidth / 2).toFixed(1)}px,${(p.y - r).toFixed(1)}px)`; e.style.opacity = op.toFixed(3);
+    };
     const f = () => {
-      WEB.raf = 0; if (!hero || !hero.nodes || !WEB.team) return;
+      WEB.raf = 0; if (!hero || !hero.frame || !WEB.team) return;
       if (scrollY < innerHeight * 1.1) {
-        const n = hero.nodes(); if (n) {
-          const els = $$('#web .wn');
-          els.forEach((e, k) => {
-            const p = k === 0 ? n.main : n.betas[k - 1]; if (!p) return;
-            const r = Math.max(10, p.r * (k === 0 ? .86 : 1.05)), wi = e.firstElementChild;
-            if (wi.style.width !== 2 * r + 'px') { wi.style.width = wi.style.height = 2 * r + 'px'; }
-            e.style.transform = `translate(${(p.x - e.offsetWidth / 2).toFixed(1)}px,${(p.y - r).toFixed(1)}px)`; e.style.opacity = k === 0 ? 1 : Math.min(1, p.k * 1.2);
-          });
+        const fr = hero.frame(), c = fr.cell, P = o => ({ x: o.x * c, y: o.y * c, r: o.r * c });
+        for (const e of $('#web').children) {
+          if (e.classList.contains('m')) place(e, P(fr.main), .86, fr.main.a, 4);
+          else if (e.classList.contains('b')) { const b = fr.betas[+e.dataset.k]; if (!b) continue; e.classList.toggle('found', b.found); place(e, P(b), 1.05, b.a * (b.found ? 1 : .45), 3); }
+          else { const o = fr.field[+e.dataset.f]; place(e, P(o), 1, o.a * (o.found ? .25 : .7), 2); }
         }
+        if (fr.t > fr.end + .5 && !WEB.fieldDone) { WEB.fieldDone = true; $$('#web .wn.f').forEach(x => x.remove()); }
       }
       WEB.raf = requestAnimationFrame(f);
     };
@@ -359,8 +375,8 @@
     renderScan(); const row = $(`.srw[data-m="${mint}"]`); goTo(row || 'scan', 90);
     if (n.dataset.wb && row) setTimeout(() => { const br = $(`.bt-r[data-b="${n.dataset.wb}"]`, row); if (br) { br.classList.remove('hl'); void br.offsetWidth; br.classList.add('hl'); } }, 900);
   });
-  $('#hTeam').addEventListener('click', e => { e.stopPropagation(); const w = WEB.team; if (!w) return; const m = mainOf(w.m.mint) || w.m; const sel = selOf(m), betas = m.betas.filter(b => sel.has(b.mint)); setTeam(m, betas.length ? betas : w.betas.slice(0, S.cfg.maxBetas)); goTo('pair'); });
-  $('#hLive').addEventListener('click', e => { if (!e.target.closest('button')) goTo('scan'); });
+  if ($('#hTeam')) $('#hTeam').addEventListener('click', e => { e.stopPropagation(); const w = WEB.team; if (!w) return; const m = mainOf(w.m.mint) || w.m; const sel = selOf(m), betas = m.betas.filter(b => sel.has(b.mint)); setTeam(m, betas.length ? betas : w.betas.slice(0, S.cfg.maxBetas)); goTo('pair'); });
+  if ($('#hLive')) $('#hLive').addEventListener('click', e => { if (!e.target.closest('button')) goTo('scan'); });
   $('#top').addEventListener('click', e => { if (e.target.closest('form,a,button,.hlive,.radar')) return; if (hero && hero.done && hero.pulse) hero.pulse(); });
   function renderRadar() {
     const top = SC.d.mains.filter(m => m.n).slice(0, 16); if (!top.length) return;
