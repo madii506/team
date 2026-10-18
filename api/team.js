@@ -564,7 +564,10 @@ async function buildScan(prev) {
       const t = c.created ? new Date(c.created).getTime() : null; c.after = mt && t ? Math.round((t - mt) / 60000) : null; c.age = t ? Math.round((Date.now() - t) / 60000) : null;
       c.isNew = !!(pm && !pm.has(c.mint));
     });
-    list.sort((a, b) => (b.tradeable - a.tradeable) || ((b.liq || 0) - (a.liq || 0)) || ((b.mc || 0) - (a.mc || 0)));
+    // identical copies (same ticker and name, usually one bundle) count once: the deepest of them
+    const seen = new Map(); for (const c of list) { const k = norm(c.symbol) + '|' + norm(c.name); const o = seen.get(k); if (!o || (c.liq || 0) > (o.liq || 0)) seen.set(k, c); }
+    list = [...seen.values()];
+    list.sort((a, b) => (b.tradeable - a.tradeable) || ((b.g1h != null) - (a.g1h != null)) || ((b.liq || 0) - (a.liq || 0)) || ((b.mc || 0) - (a.mc || 0)));
     const tr = list.filter(c => c.tradeable), behind = tr.filter(c => c.state === 'behind').length, ahead = tr.filter(c => c.state === 'ahead').length;
     totB += list.length; totT += tr.length; totBehind += behind; totAhead += ahead;
     const ages = list.map(c => c.age).filter(a => a != null);
@@ -572,7 +575,7 @@ async function buildScan(prev) {
       mint: m.mint, symbol: m.symbol, name: m.name, image: pubImg(m.image), mc: m.mc, liq: m.liq, price: m.price, ch5m: m.ch5m, ch1h: m.ch1h, ch24: m.ch24, vol1h: m.vol1h, vol24: m.vol24, holders: m.holders, organic: m.organic, created: m.created, bonded: m.bonded, boards: m.boards, keys,
       isNew: !!(prev && prev.mains && !prevMains.has(m.mint)),
       n: list.length, tradeable: tr.length, behind, ahead, step: tr.length - behind - ahead, fresh: ages.filter(a => a <= 360).length, newest: ages.length ? Math.min(...ages) : null,
-      depth: tr.reduce((x, c) => x + (c.liq || 0), 0), pick: tr.slice(0, MAX_BETAS).map(c => c.mint),
+      depth: tr.reduce((x, c) => x + (c.liq || 0), 0), pick: tr.filter(c => c.g1h != null).concat(tr.filter(c => c.g1h == null)).slice(0, MAX_BETAS).map(c => c.mint),
       betas: list.slice(0, 24).map(c => ({ mint: c.mint, symbol: c.symbol, name: c.name, image: pubImg(c.image), mc: c.mc, liq: c.liq, ch5m: c.ch5m, ch1h: c.ch1h, ch24: c.ch24, g5m: c.g5m, g1h: c.g1h, g24: c.g24, state: c.state, tradeable: c.tradeable, copy: c.copy, after: c.after, age: c.age, src: c.src, isNew: c.isNew })),
       all: list.map(c => c.mint).slice(0, 200),
     };
