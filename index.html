@@ -14,7 +14,7 @@
 <link rel="icon" href="/img/favicon.png" type="image/png">
 <link rel="apple-touch-icon" href="/img/apple-touch.png">
 <link rel="preload" href="/fonts/Inter-800.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/css/team.css?v=3">
+<link rel="stylesheet" href="/css/team.css?v=4">
 <script>(function(){try{if(!matchMedia('(prefers-reduced-motion: reduce)').matches&&!location.hash)document.documentElement.classList.add('intro')}catch(e){}})()</script>
 </head>
 <body>
@@ -31,9 +31,10 @@
 <main>
   <section class="hero" id="top">
     <canvas id="led" aria-hidden="true"></canvas>
+    <div class="web" id="web" aria-label="A live team from the scanner"></div>
     <h1 class="sr">TEAM: a live pump.fun scanner that pairs every runner with the betas riding it.</h1>
     <div class="hdom" id="hdom">
-      <p class="hlive mono" id="hLive"><i class="pulse"></i><span id="hLiveT">connecting to the live pump.fun scan…</span></p>
+      <p class="hlive mono" id="hLive"><i class="pulse"></i><span id="hLiveT">connecting to the live pump.fun scan…</span><button type="button" class="hteam" id="hTeam" hidden>Team them →</button></p>
       <form class="find" id="heroFind" autocomplete="off">
         <span class="mono">$</span><input id="heroQ" placeholder="the main's ticker or contract address" spellcheck="false" aria-label="Main ticker or contract address">
         <button class="btn pri" type="submit">Find its betas</button>
@@ -196,7 +197,7 @@
 <script src="/js/web3.min.js" defer></script>
 <script src="/js/lenis.min.js" defer></script>
 <script src="/js/led.js" defer></script>
-<script src="/js/hero.js?v=2" defer></script>
-<script src="/js/team.js?v=3" defer></script>
+<script src="/js/hero.js?v=3" defer></script>
+<script src="/js/team.js?v=4" defer></script>
 </body>
 </html>
