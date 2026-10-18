@@ -1,0 +1,9 @@
+{
+  "name": "team",
+  "private": true,
+  "description": "betas that actually follow the main. win as a team.",
+  "engines": { "node": "22.x" },
+  "dependencies": { "@neondatabase/serverless": "^0.10.4", "@solana/web3.js": "^1.98.2" },
+  "devDependencies": { "pg": "^8.13.1" },
+  "overrides": { "rpc-websockets": { "uuid": "^11.1.0" } }
+}
