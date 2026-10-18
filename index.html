@@ -4,17 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>TEAM</title>
-<meta name="description" content="betas that actually follow the main. win as a team.">
+<meta name="description" content="Live pump.fun scanner: every runner, every beta riding it, and one maker wallet that trades the betas against the main.">
 <meta name="theme-color" content="#000000">
 <meta property="og:title" content="TEAM">
-<meta property="og:description" content="betas that actually follow the main. win as a team.">
+<meta property="og:description" content="Every pump.fun runner and the betas riding it, scanned live every minute. Pair them into a team.">
 <meta property="og:image" content="/img/og.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="/img/og.png">
 <link rel="icon" href="/img/favicon.png" type="image/png">
 <link rel="apple-touch-icon" href="/img/apple-touch.png">
 <link rel="preload" href="/fonts/Inter-800.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/css/team.css?v=2">
+<link rel="stylesheet" href="/css/team.css?v=3">
 <script>(function(){try{if(!matchMedia('(prefers-reduced-motion: reduce)').matches&&!location.hash)document.documentElement.classList.add('intro')}catch(e){}})()</script>
 </head>
 <body>
@@ -31,9 +31,9 @@
 <main>
   <section class="hero" id="top">
     <canvas id="led" aria-hidden="true"></canvas>
-    <h1 class="sr">TEAM. Betas that actually follow the main. Win as a team.</h1>
+    <h1 class="sr">TEAM: a live pump.fun scanner that pairs every runner with the betas riding it.</h1>
     <div class="hdom" id="hdom">
-      <p class="tag mono">betas that actually follow the main. win as a team.</p>
+      <p class="hlive mono" id="hLive"><i class="pulse"></i><span id="hLiveT">connecting to the live pump.fun scan…</span></p>
       <form class="find" id="heroFind" autocomplete="off">
         <span class="mono">$</span><input id="heroQ" placeholder="the main's ticker or contract address" spellcheck="false" aria-label="Main ticker or contract address">
         <button class="btn pri" type="submit">Find its betas</button>
@@ -56,6 +56,13 @@
       <label class="tog mono"><input type="checkbox" id="scOnly" checked><i></i>only teamable</label>
     </div>
     <div class="scanline mono rv" id="scLine"><i class="pulse"></i><span id="scTxt">Scanning pump.fun…</span><span class="ring sm"><svg viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15"/><circle id="scRing" cx="18" cy="18" r="15"/></svg><b id="scNext">60</b></span></div>
+    <div class="feed rv" id="scFeed" hidden><span class="fl mono">THIS SCAN</span><div class="ft"><div class="fin" id="scFeedIn"></div></div></div>
+    <div class="legend2 rv">
+      <div><b class="mono">01</b><h4>The main</h4><p>A pump.fun runner on Jupiter's live boards right now, with its market cap and its move over the last hour and day.</p></div>
+      <div><b class="mono">02</b><h4>Its crowd</h4><p>Every coin riding its name: same-ticker copies, spin-offs, and fresh launches read straight from Solana. Tradeable ones have at least $3K of liquidity.</p></div>
+      <div><b class="mono">03</b><h4>The gap strip</h4><p>The white line is the main. Each dot is a beta, placed by how far its last hour moved against the main's. Green dots sit a band behind: the maker would buy them.</p></div>
+      <div><b class="mono">04</b><h4>Team them</h4><p>Picks the tradeable betas for you (open the row to change them) and drops the team into the pair console with the rules ready.</p></div>
+    </div>
     <div class="board rv" id="scBoard"><div class="empty">Reading every pump.fun runner and the betas riding it…</div></div>
     <p class="scnote mono" id="scNote"></p>
   </section>
@@ -148,13 +155,14 @@
   </section>
 
   <section class="sec" id="engine">
-    <div class="shead"><span class="idx mono">06</span><h2 class="led-t" data-t="ENGINE">Engine</h2><p class="sub">One small rule, run on every team every few minutes. The main is only the signal; the maker never trades it. Every beta is measured against the main since kickoff, and the maker leans against the gap.</p></div>
+    <div class="shead"><span class="idx mono">06</span><h2 class="led-t" data-t="ENGINE">Engine</h2><p class="sub">One small rule, run on every team every few minutes. The main is only the signal; the maker never trades it. Every beta is measured against the main since kickoff, the moment the team went live, and the maker leans against the gap: it buys the betas that fall behind and trims the ones that run ahead. When the main runs, the betas that lag get bid. When a beta overshoots, some of it is taken off the table. Each step of the band triggers one trade, never two, so a beta sliding slowly doesn't drain the wallet.</p></div>
     <div class="pipe rv" id="pipe">
       <div class="node" data-n="0"><canvas class="vled" data-v="1"></canvas><b class="mono">01</b><h3>Read the main</h3><p>Its live price from Jupiter. That's the line every beta should follow.</p></div>
       <div class="node" data-n="1"><canvas class="vled" data-v="2"></canvas><b class="mono">02</b><h3>Measure each beta</h3><p>How far each beta sits from the main since kickoff: <span class="mono">ln((beta/b0)/(main/m0))</span>.</p></div>
       <div class="node" data-n="2"><canvas class="vled" data-v="3"></canvas><b class="mono">03</b><h3>Behind? Buy it</h3><p>A beta a full band behind the main gets bought with your buy share of free SOL.</p></div>
       <div class="node" data-n="3"><canvas class="vled" data-v="4"></canvas><b class="mono">04</b><h3>Ahead? Trim it</h3><p>A beta a full band ahead of the main gets trimmed by your trim share of its bag.</p></div>
     </div>
+    <div class="lex rv" id="lex"><div class="lab mono"><i class="pulse"></i>LIVE EXAMPLE · FROM THE LAST SCAN</div><p id="lexT">Waiting for the first scan…</p></div>
     <div class="egrid rv">
       <div class="real"><div class="lab mono">THE RULES</div><ul id="rulesList"></ul></div>
       <div class="real"><div class="lab mono">WHAT'S REAL</div>
@@ -188,7 +196,7 @@
 <script src="/js/web3.min.js" defer></script>
 <script src="/js/lenis.min.js" defer></script>
 <script src="/js/led.js" defer></script>
-<script src="/js/hero.js?v=1" defer></script>
-<script src="/js/team.js?v=2" defer></script>
+<script src="/js/hero.js?v=2" defer></script>
+<script src="/js/team.js?v=3" defer></script>
 </body>
 </html>

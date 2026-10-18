@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TEAM docs</title>
+<meta name="description" content="How TEAM scans pump.fun every minute, finds the betas riding each runner, and runs one maker wallet that trades the betas against the main.">
+<meta name="theme-color" content="#000000">
+<meta property="og:title" content="TEAM docs">
+<meta property="og:description" content="The scanner, the gap, the band, the engine, custody, limits, data sources, API and risks.">
+<meta property="og:image" content="/img/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="/img/og.png">
+<link rel="icon" href="/img/favicon.png" type="image/png">
+<link rel="apple-touch-icon" href="/img/apple-touch.png">
+<link rel="preload" href="/fonts/Inter-800.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/css/team.css?v=3">
+<link rel="stylesheet" href="/css/docs.css?v=1">
+</head>
+<body class="docs">
+<canvas id="bgled" aria-hidden="true"></canvas>
+<div class="progress" id="progress" aria-hidden="true"></div>
+<nav id="nav">
+  <div class="links" id="links">
+    <a href="/#scan">Scanner</a><a href="/#betas">Betas</a><a href="/#lab">Lab</a><a href="/#pair">Pair</a><a href="/#teams">Teams</a><a href="/#engine">Engine</a><a href="/#faq">FAQ</a><a href="/docs" class="doc on" aria-current="page">Docs</a>
+  </div>
+  <a class="wbtn" href="/#scan"><i></i><span class="lg">Open app</span><span class="sm2">App</span></a>
+</nav>
+
+<main class="dwrap">
+  <header class="dhead">
+    <span class="idx mono">00</span>
+    <h1 class="led-t" data-t="DOCS">Docs</h1>
+    <p class="dlead">TEAM is a live pump.fun scanner with a market maker attached. Every minute it reads every runner on Jupiter's boards, finds every coin riding that runner's name, and measures where each one sits against it. When you pair a main with its betas, one maker wallet watches them and <b>buys the betas that fall behind the main and trims the ones that run ahead</b>. Below is exactly how every part works, what it costs, who holds what, and where every number comes from.</p>
+    <div class="dmeta mono"><span><i class="pulse" id="cfgDot"></i><b id="cfgState">reading /api/config…</b></span><span>v1 · solana mainnet</span><span>every rule on this page is the code the engine runs</span></div>
+  </header>
+
+  <div class="dgrid">
+    <aside class="toc" id="toc">
+      <label class="tsearch"><span class="mono">/</span><input id="dq" type="search" placeholder="search the docs" spellcheck="false" aria-label="Search the docs"></label>
+      <nav class="toclist" id="tlist" aria-label="Sections"></nav>
+      <p class="tnone mono" id="tnone" hidden>nothing matches</p>
+    </aside>
+
+    <article class="dbody" id="dbody">
+
+      <section class="ds" id="overview" data-t="overview intro what">
+        <h2><span class="mono">01</span>Overview</h2>
+        <p>On pump.fun, every coin that runs pulls a crowd behind it: same-ticker copies, spin-offs, "baby" and "king" versions, fresh launches named after it within minutes. These are the <b>betas</b>. The coin they ride is the <b>main</b>. Betas move when the main moves, but not evenly: some lag, some overshoot, some never catch up.</p>
+        <p>TEAM does two things with that. First, the <b>scanner</b> shows you, every minute, every pump.fun runner and the whole crowd riding it, with each beta's live gap to its main. Second, the <b>maker</b>: you pick one main and up to five betas, fund one fresh wallet with SOL, and the engine trades the betas against the main inside rules you set. The main is only the signal. The maker never buys or sells it.</p>
+        <pre class="dia mono">  the main ──▶ its move since kickoff ──┐
+                                         ├──▶ the gap ──▶ behind a band?  buy that beta
+  each beta ─▶ its move since kickoff ──┘    per beta     ahead a band?   trim that beta
+                                                           inside?         do nothing</pre>
+        <p class="note">TEAM is independent. It is not affiliated with pump.fun, Jupiter, Dexscreener, GeckoTerminal or any coin it lists.</p>
+      </section>
+
+      <section class="ds" id="scanner" data-t="scanner scan minute runners boards live">
+        <h2><span class="mono">02</span>The scanner</h2>
+        <p>A scan runs at most once a minute and is shared by everyone looking at the page. Each scan does four things:</p>
+        <ol>
+          <li><b>Reads the boards.</b> Jupiter's trending, most-traded and organic-score boards for the last hour, plus trending over five minutes. Only pump.fun launches are kept (the launchpad field, or a mint ending in <code>pump</code>), and only those with at least $100K market cap and $10K liquidity. The 20 that appear on the most boards, then by hourly volume, become this scan's mains.</li>
+          <li><b>Finds each main's crowd.</b> TEAM builds search keys from the main's ticker and the distinctive words of its name (common words like "coin", "inu" or "baby" are ignored), then searches Dexscreener and Jupiter for every Solana coin carrying them, and checks every pump.fun launch it read from Solana in the last 24 hours.</li>
+          <li><b>Measures every beta.</b> For each beta, the gap to its main over 5 minutes, 1 hour and 24 hours: <code>ln((1 + beta move) / (1 + main move))</code>. A beta more than one default band (<span data-c="defaults.band" data-u="%">10%</span>) behind over the last hour is marked <b>behind</b>; more than a band ahead, <b>ahead</b>; otherwise <b>in step</b>.</li>
+          <li><b>Compares with the last scan.</b> New mains, betas that just appeared, and betas that just crossed the band show up in the "this scan" feed.</li>
+        </ol>
+        <p>A beta is <b>tradeable</b> when it has at least <span data-c="minLiq" data-f="usd">$3,000</span> of liquidity. Betas bigger than their main are dropped (they are a different story, not a beta). "Team them" pre-picks the five deepest tradeable betas; open the row to change the picks.</p>
+        <p class="note">The scanner's gap uses the last hour because that's what every coin has in common. A live team measures from its own kickoff instead, so its gaps start at zero the moment it goes live.</p>
+      </section>
+
+      <section class="ds" id="betas" data-t="betas follow correlation deep scan candles">
+        <h2><span class="mono">03</span>Betas and follow</h2>
+        <p>The deep scan (the Betas section) goes further for one main. It searches Jupiter, Dexscreener and three days of on-chain launches, keeps up to 40 betas, and for the seven deepest tradeable ones pulls real 15-minute candles from GeckoTerminal for both the beta and the main.</p>
+        <p><b>Follow</b> is the correlation of their 15-minute log returns over the same candles, from −100% to 100%. A high follow means that when the main moves, the beta moves the same way in the same window. That's the property the maker relies on: a beta with a high follow that has fallen behind is more likely to be pulled back up when the main runs again. A beta with a follow near zero is just a coin with a similar name.</p>
+        <ul>
+          <li><b>same ticker</b>: the beta uses exactly the main's ticker. Often a copy, sometimes the original on another pool.</li>
+          <li><b>fresh · on chain</b>: only Solana knows about it yet. TEAM read its creation straight from pump.fun's program logs.</li>
+          <li><b>launched</b>: how long after the main the beta was created.</li>
+        </ul>
+      </section>
+
+      <section class="ds" id="lab" data-t="lab replay candles chart simulation">
+        <h2><span class="mono">04</span>The lab</h2>
+        <p>The lab puts the main and its betas on the same real candles (5m, 15m or 1h), rebased to 100, and draws each beta's gap to the main underneath with your band shaded. Hover anywhere to read every line at that moment.</p>
+        <p>Move the band, buy and trim sliders and the lab <b>replays the rule over those exact candles</b>: start with 100 units of cash, buy a beta when it falls a new band behind, trim when it runs a new band ahead, at most two trades per candle, with a 0.5% cost on every trade. It reports the trades it would have made, where the maker would have ended against plain cash, and what simply holding the betas did.</p>
+        <p class="note">A replay of the past, not a promise. Real fills differ from candle closes, and liquidity changes.</p>
+      </section>
+
+      <section class="ds" id="pairing" data-t="pair create fund kickoff steps">
+        <h2><span class="mono">05</span>Pairing a team</h2>
+        <ol>
+          <li><b>Team.</b> The main and one to <span data-c="maxBetas">5</span> betas. Each beta must have at least <span data-c="minLiq" data-f="usd">$3,000</span> of liquidity when you create the team.</li>
+          <li><b>Rules.</b> Band, buy share, trim share, cooldown between passes, the most SOL per trade, and the highest price impact a swap may have. The lab replay updates as you move them.</li>
+          <li><b>Fund.</b> Sign in with a free message signature, then TEAM creates a brand-new maker wallet for this team only, and you send it SOL from your wallet (at least <span data-c="minFund" data-u=" SOL">0.05 SOL</span>). You sign that transfer yourself.</li>
+        </ol>
+        <p>When the deposit lands, the team goes live and records its <b>kickoff</b>: the main's price and every beta's price at that moment. Every gap from then on is measured from kickoff. You can reset kickoff to today's prices at any time.</p>
+      </section>
+
+      <section class="ds" id="engine" data-t="engine pass ladder band gap buy trim">
+        <h2><span class="mono">06</span>The engine</h2>
+        <p>Every few minutes (your cooldown, default <span data-c="defaults.cooldown" data-u=" minutes">3 minutes</span>), the engine runs one <b>pass</b> for each live team:</p>
+        <ol>
+          <li>Read the main's and every beta's live price from Jupiter.</li>
+          <li>For each beta, the gap since kickoff: <code>gap = ln((beta / beta₀) / (main / main₀))</code>, and its level: <code>floor(|gap| / band)</code>.</li>
+          <li>Each beta keeps a <b>ladder</b>: the deepest level it has already been traded at, on that side. The maker trades only when a beta reaches a <i>new</i> level. Back inside the band, the ladder resets. If the gap flips sides, the ladder starts again on the new side.</li>
+          <li><b>Behind</b> (gap below −band at a new level): buy that beta with your buy share of free SOL, never more than your max per trade, and never more than <span data-c="maxSol" data-u=" SOL">5 SOL</span> of the wallet in total, keeping <span data-c="reserve" data-u=" SOL">0.015 SOL</span> back for fees and rent.</li>
+          <li><b>Ahead</b> (gap above band at a new level): sell your trim share of that beta's bag.</li>
+          <li>At most <b>two trades per pass</b>, starting with the beta furthest from the main. Every swap is quoted by Jupiter first and skipped (and logged) if its price impact is above your limit.</li>
+        </ol>
+        <pre class="dia mono">gap  +30% ┤                    ●  trim (new level 3)
+     +20% ┤               ●       trim (new level 2)
+     +10% ┤──────────●─────────── band
+        0 ┼── kickoff ───────────────────────────────
+     -10% ┤───────────────────────── band ──●──────── buy (new level 1)
+     -20% ┤                                     ●     buy (new level 2)</pre>
+        <p>Passes are driven by a scheduler that calls the engine every 30 seconds; each team runs only when its own cooldown is due. Every trade, skip and change is written to the team's public log with its transaction.</p>
+      </section>
+
+      <section class="ds" id="custody" data-t="custody keys wallet withdraw owner security">
+        <h2><span class="mono">07</span>Custody and control</h2>
+        <p>The maker has to trade while you sleep, so <b>the server holds the maker's key</b>. It is generated on the server for one team only, encrypted at rest with AES-256-GCM under a secret the operator sets, and never shown to anyone. The maker only ever holds the SOL you send it and the betas it buys.</p>
+        <ul>
+          <li><b>Only the owner's wallet</b> can change the rules, pause, reset kickoff, add SOL or withdraw. You prove it with a free message signature; nothing is ever signed on your behalf from your own wallet.</li>
+          <li><b>Withdraw</b> sells every beta, one per pass, then closes the empty token accounts (their rent comes back) and sends every remaining lamport to the owner's wallet, minus the network fee. Then the team is closed.</li>
+          <li><b>Every maker is public.</b> Its address, balances, trades and log are on the team page and on Solana.</li>
+        </ul>
+        <p class="note">Fund only what you can afford to lose. Holding a key on a server is a risk in itself, however carefully it is stored.</p>
+      </section>
+
+      <section class="ds" id="limits" data-t="limits table settings defaults costs fees">
+        <h2><span class="mono">08</span>Limits and costs</h2>
+        <div class="tbl"><table class="dt">
+          <thead><tr><th>rule</th><th>default</th><th>range</th><th>what it does</th></tr></thead>
+          <tbody>
+            <tr><td>band</td><td data-c="defaults.band" data-u="%">10%</td><td data-c="limits.band" data-u="%">3–40%</td><td>How far a beta drifts from the main before the maker acts. Each further band is one more step.</td></tr>
+            <tr><td>buy</td><td data-c="defaults.buy" data-u="%">15%</td><td data-c="limits.buy" data-u="%">5–50%</td><td>Share of free SOL spent on a beta that falls a new band behind.</td></tr>
+            <tr><td>trim</td><td data-c="defaults.trim" data-u="%">30%</td><td data-c="limits.trim" data-u="%">0–100%</td><td>Share of a beta's bag sold when it runs a new band ahead. 0 never sells.</td></tr>
+            <tr><td>cooldown</td><td data-c="defaults.cooldown" data-u="m">3m</td><td data-c="limits.cooldown" data-u="m">1–120m</td><td>Minutes between passes.</td></tr>
+            <tr><td>max trade</td><td data-c="defaults.maxTrade" data-u=" SOL">0.3 SOL</td><td data-c="limits.maxTrade" data-u=" SOL">0.01–5 SOL</td><td>The most SOL one buy can spend.</td></tr>
+            <tr><td>impact</td><td data-c="defaults.impact" data-u="%">4%</td><td data-c="limits.impact" data-u="%">0.5–10%</td><td>Swaps quoted above this price impact are skipped.</td></tr>
+            <tr><td>slippage</td><td data-c="defaults.slippage" data-f="bps">3%</td><td data-c="limits.slippage" data-f="bps">0.5–15%</td><td>Slippage allowed on each swap.</td></tr>
+            <tr><td>SOL at work</td><td data-c="maxSol" data-u=" SOL">5 SOL</td><td>fixed</td><td>The most SOL one maker ever puts to work.</td></tr>
+            <tr><td>reserve</td><td data-c="reserve" data-u=" SOL">0.015 SOL</td><td>fixed</td><td>Always kept for network fees and token-account rent.</td></tr>
+            <tr><td>betas</td><td data-c="maxBetas">5</td><td>1–5</td><td>Betas per team.</td></tr>
+            <tr><td>liquidity</td><td data-c="minLiq" data-f="usd">$3,000</td><td>fixed</td><td>The least a beta needs to be traded.</td></tr>
+          </tbody>
+        </table></div>
+        <p><b>Costs.</b> TEAM takes no fee. The maker pays Solana network fees and priority fees on every swap, the swap's own pool fees and price impact, and token-account rent (returned when an account is closed).</p>
+      </section>
+
+      <section class="ds" id="sources" data-t="data sources jupiter dexscreener geckoterminal solana rpc">
+        <h2><span class="mono">09</span>Data sources</h2>
+        <ul>
+          <li><b>Jupiter</b>: the trending, traded and organic boards (the mains), token search, 5m/1h/24h moves, liquidity, icons, live prices, and every swap quote and transaction the maker sends.</li>
+          <li><b>Dexscreener</b>: pair search for betas, and the market (price, liquidity, market cap) for any contract you paste.</li>
+          <li><b>GeckoTerminal</b>: the 5m, 15m and 1h candles behind the lab and the follow score.</li>
+          <li><b>Solana</b>: every pump.fun launch, read from the program's create events (name, ticker, creator, time) at most every 25 seconds and kept three days; the maker's balances; and every transaction.</li>
+        </ul>
+        <p>When a source doesn't answer, the scan says so on the page instead of filling the gap.</p>
+      </section>
+
+      <section class="ds" id="api" data-t="api routes endpoints json reference">
+        <h2><span class="mono">10</span>API</h2>
+        <p>Everything the page shows comes from these public routes. POST routes marked <span class="tag">owner</span> need the bearer token you get from signing in.</p>
+        <div class="route"><div class="rh"><span class="m">GET</span><code>/api/scan</code></div><p>The latest minute scan: every main with its crowd, gaps and counts.</p>
+<pre class="code">{ at, n, took, every: 60, band, minLiq, totals: { mains, betas, tradeable, behind, ahead, creates1h },
+  src: { jupiter: { ok, fail }, dexscreener: {...}, solana: {...} },
+  mains: [{ mint, symbol, name, mc, ch5m, ch1h, ch24, vol1h, boards, n, tradeable, behind, ahead, step, fresh, pick,
+            betas: [{ mint, symbol, mc, liq, ch1h, g5m, g1h, g24, state, tradeable, copy, after, age, src, isNew }] }] }</pre></div>
+        <div class="route"><div class="rh"><span class="m">GET</span><code>/api/betas?q=&lt;ticker or CA&gt;</code></div><p>The deep scan for one main, with follow scores.</p>
+<pre class="code">{ at, main, keys, chain, list: [{ mint, symbol, name, mc, liq, ch24, rel24, follow, n, after, copy, bonded, src }] }</pre></div>
+        <div class="route"><div class="rh"><span class="m">GET</span><code>/api/lab?main=&lt;CA&gt;&amp;betas=&lt;CA,CA&gt;&amp;tf=5m|15m|1h</code></div><p>Aligned candles for the main and its betas: each row is <code>[time, main, beta1, beta2…]</code>.</p></div>
+        <div class="route"><div class="rh"><span class="m">GET</span><code>/api/fresh</code></div><p>New pump.fun launches riding today's mains, read from Solana.</p></div>
+        <div class="route"><div class="rh"><span class="m">GET</span><code>/api/teams</code> · <code>/api/team?id=</code> · <code>/api/stats</code> · <code>/api/config</code></div><p>Every live team, one team with its gaps, trades, samples and log, the totals, and the engine's rules.</p></div>
+        <div class="route"><div class="rh"><span class="m p">POST</span><code>/api/create</code><span class="tag">owner</span></div>
+<pre class="code">{ "main": "&lt;CA&gt;", "betas": ["&lt;CA&gt;", "…"], "settings": { "band": 10, "buy": 15, "trim": 30 } }  →  { id, treasury, settings }</pre></div>
+        <div class="route"><div class="rh"><span class="m p">POST</span><code>/api/funded</code> · <code>/api/settings</code> · <code>/api/pause</code> · <code>/api/reanchor</code> · <code>/api/withdraw</code><span class="tag">owner</span></div><p>Start the team once the deposit lands, change its rules, pause or resume, reset kickoff, or withdraw everything. Each takes <code>{ "id": … }</code>.</p></div>
+      </section>
+
+      <section class="ds" id="risks" data-t="risks lose money rug liquidity">
+        <h2><span class="mono">11</span>Risks</h2>
+        <ul>
+          <li><b>You can lose money.</b> Buying a beta that's behind is a bet that it catches up. Many betas are behind because they're dying, and meme coins can go to zero.</li>
+          <li><b>Rugs and thin liquidity.</b> A beta's creator can pull liquidity or dump. Swaps in thin pools move the price against the maker.</li>
+          <li><b>The main can turn.</b> When the main dumps, betas that were "behind" can stay behind for good.</li>
+          <li><b>Server custody.</b> The maker's key lives on the server so it can trade unattended.</li>
+          <li><b>Not advice.</b> Nothing here is financial advice. The scanner shows what's on chain; what you do with it is your call.</li>
+        </ul>
+        <div class="dend"><a class="btn pri" href="/#scan">Open the scanner</a><a class="btn" href="/#pair">Pair a team</a></div>
+      </section>
+
+    </article>
+  </div>
+</main>
+<script src="/js/led.js"></script>
+<script src="/js/lenis.min.js"></script>
+<script src="/js/docs.js?v=1"></script>
+</body>
+</html>
