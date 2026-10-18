@@ -18,7 +18,11 @@
   const GLYPH = 'ABCDEFGHJKLMNOPQRSUVWXYZ0123456789$#%&+';
 
   // the timeline, in seconds
-  const TL = { power: 1.1, feed0: .4, feed1: 2.6, main0: 1.2, main1: 2.3, scan0: 1.9, scan1: 3.1, fade0: 2.9, fade1: 3.4, fly0: 3.0, fly1: 4.4, thread0: 3.55, pump0: 4.45, lag: .25, word: 5.75, END: 7.5 };
+  const TL = { power: 1.1, feed0: .4, feed1: 2.6, main0: 1.2, main1: 2.3, scan0: 1.9, scan1: 3.1, fade0: 2.9, fade1: 3.4, fly0: 3.0, fly1: 4.4, thread0: 3.55, pump0: 4.45, lag: .25, col0: 5.3, col1: 6.05, hand0: 5.4, clasp: 6.45, word: 6.95, END: 8.4 };
+  // the finale: the team folds into two hands that meet and shake. One PNG pixel per LED dot, drawn at the same origin they make the handshake.
+  const HW = [40, 52, 64, 78, 94, 112], HANDS = {};
+  HW.forEach(w => { const l = new Image(), r = new Image(); l.src = '/img/hands/L' + w + '.png'; r.src = '/img/hands/R' + w + '.png'; HANDS[w] = { l, r, h: Math.ceil(w * .564) }; });
+  const ready = im => im.complete && im.naturalWidth > 0;
   const NB = 6;                                             // how many betas the main finds
 
   // the field of launches: one in fifteen is a beta, the rest is noise
@@ -49,13 +53,15 @@
     const slots = [];
     for (let i = 0; i < NB; i++) { const a = (160 - i * (140 / (NB - 1))) * Math.PI / 180; slots.push({ x: cx + Math.cos(a) * rx, y: my + R * .6 + Math.sin(a) * ry }); }
     const fs = mob ? Math.min(gh * .1, gw * .22) : Math.min(gh * .12, gw * .1), ty = gh * (mob ? .46 : .56);
-    return { mob, R, cx, my, rise, r, slots, fs, ty };
+    const want = Math.min(gw * (mob ? .8 : .44), gh * (mob ? .3 : .4) / .564), hw = HW.filter(w => w <= want).pop() || HW[0];
+    const hand = { w: hw, h: HANDS[hw].h }, hy = Math.min(gh * (mob ? .24 : .28), ty - fs * .95 - hand.h / 2);
+    return { mob, R, cx, my, rise, r, slots, fs, ty, hand, hy };
   }
 
   window.TeamHero = function (canvas, opts = {}) {
     const reduce = !!opts.reduce;
     let skipAt = null, offset = reduce ? TL.END : 0, done = false, hero = null, labels = { main: '', betas: [] };
-    let pumpAt = -1e9, lastCycle = -1;
+    let pumpAt = -1e9, lastCycle = -1, clasped = false;
     const api = {};
     function finish() {
       if (done) return; done = true;
@@ -63,6 +69,26 @@
       try { opts.onDone && opts.onDone(); } catch (e) { }
     }
     const timeOf = t0 => skipAt != null ? t0 - skipAt + TL.END : t0 + offset;
+    // two hands slide in from the edges, meet, grip, shake; afterwards they shake again on every idle beat
+    function hands(g, gw, gh, t, L, mxn, myn, sinceP, A) {
+      const H = HANDS[L.hand.w], hk = clamp((t - TL.hand0) / (TL.clasp - TL.hand0)); if (hk <= 0 || !ready(H.l) || !ready(H.r)) return;
+      const e = ease.inOut(hk), w = L.hand.w, h = H.h, dist = gw * .52 + w * .35;
+      const s1 = (t - TL.clasp) / 1.0, s2 = sinceP / .9;
+      let shake = 0; if (s1 > 0 && s1 < 1) shake += Math.sin(s1 * Math.PI * 4) * h * .075 * (1 - s1); if (t > TL.END && s2 > 0 && s2 < 1) shake += Math.sin(s2 * Math.PI * 4) * h * .05 * (1 - s2);
+      const ox = L.cx - w / 2 + mxn * 1.6, oy = L.hy - h / 2 + myn * 1.2 + shake, lift = (1 - e) * gh * .07;
+      const moving = hk < 1 || Math.abs(shake) > .05; g.imageSmoothingEnabled = moving;
+      // glow behind the grip, a flash when they meet
+      const flash = s1 > 0 && s1 < .6 ? (1 - s1 / .6) : 0, gl = hk >= 1 ? .1 + Math.sin(t * 1.6) * .03 + flash * .35 : hk * .06;
+      const rg = g.createRadialGradient(L.cx, L.hy, 0, L.cx, L.hy, w * .62); rg.addColorStop(0, `rgba(255,255,255,${gl})`); rg.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = rg; g.fillRect(L.cx - w, L.hy - w, w * 2, w * 2);
+      g.globalAlpha = clamp(hk * 3);
+      const px = v => moving ? v : Math.round(v);
+      g.drawImage(H.l, px(ox - dist * (1 - e)), px(oy + lift));
+      g.drawImage(H.r, px(ox + dist * (1 - e)), px(oy + lift * .7));
+      g.globalAlpha = 1; g.imageSmoothingEnabled = true;
+      if (!clasped && t >= TL.clasp) { clasped = true; A.ripple(L.cx, L.hy); }
+      if (flash > 0) { ring(g, L.cx, L.hy, w * (.25 + s1 * .9), flash * .55, 1); plus(g, L.cx - w * .2, L.hy - h * .62, 1.3, flash); plus(g, L.cx + w * .24, L.hy - h * .55, 1, flash * .8); plus(g, L.cx + w * .02, L.hy - h * .78, .9, flash * .7); }
+      if (t > TL.END && s2 > .1 && s2 < .8) { const a = 1 - (s2 - .1) / .7; plus(g, L.cx - w * .22, L.hy - h * .6 - s2 * 2, 1, a * .8); plus(g, L.cx + w * .2, L.hy - h * .58 - s2 * 2, .9, a * .7); }
+    }
 
     hero = window.LED(canvas, {
       cell: (W, H) => W < 700 ? 7 : W < 1200 ? 8 : 9, gpu: true, fps: 60, ease: .2, idle: false,
@@ -86,7 +112,9 @@
         const sinceP = t - pumpAt, bumpA = L.rise * .11;
         mainOff -= bumpA * hill(sinceP / .8);
         const breathe = reduce ? 0 : Math.sin(t * 1.6) * .02;
-        const mx = L.cx + mxn * 2.6, my = L.my + mainOff + myn * 1.6, mr = L.R * grow * (1 + (t > TL.END ? breathe : 0));
+        const col = ease.inOut((t - TL.col0) / (TL.col1 - TL.col0)), keep = 1 - col;
+        const mx0 = L.cx + mxn * 2.6, my0 = L.my + mainOff + myn * 1.6;
+        const mx = mx0 + (L.cx - mx0) * col, my = my0 + (L.hy - my0) * col, mr = L.R * grow * (1 + (t > TL.END ? breathe : 0)) * keep;
 
         // ---- betas: positions in the formation (with the follow-up lag) ----
         const bpos = [];
@@ -95,7 +123,8 @@
           let off = L.rise * (1 - Math.min(1.06, k));
           off -= bumpA * .85 * hill((sinceP - .22 - i * .035) / .8);
           const bob = t > TL.fly1 ? Math.sin(t * 1.3 + BETA_PH[i]) * .55 : 0, sway = t > TL.fly1 ? Math.cos(t * .9 + BETA_PH[i]) * .4 : 0;
-          bpos.push({ x: s.x + sway + mxn * 1.5, y: s.y + off + bob + myn * 1.0 });
+          const bx = s.x + sway + mxn * 1.5, by = s.y + off + bob + myn * 1.0, cc = ease.inOut((t - TL.col0 - i * .04) / (TL.col1 - TL.col0 - .1));
+          bpos.push({ x: bx + (L.cx - bx) * cc, y: by + (L.hy - by) * cc, k: 1 - cc });
         }
 
         // ---- 1–3. the field of launches, the scan, the found betas ----
@@ -130,20 +159,20 @@
         // ---- halo + trail of the main ----
         if (mr > .3) {
           const hg = g.createRadialGradient(mx, my, mr * .8, mx, my, mr * 2.5); hg.addColorStop(0, `rgba(255,255,255,${.16 + (t > TL.END ? Math.max(0, Math.sin(t * 1.6)) * .05 : 0)})`); hg.addColorStop(1, 'rgba(255,255,255,0)');
-          g.fillStyle = hg; g.fillRect(mx - mr * 2.6, my - mr * 2.6, mr * 5.2, mr * 5.2);
+          g.globalAlpha = keep; g.fillStyle = hg; g.fillRect(mx - mr * 2.6, my - mr * 2.6, mr * 5.2, mr * 5.2); g.globalAlpha = 1;
           const tp = (t - TL.pump0) / .9;
           if (tp > 0 && tp < 1.2) { const tr = g.createLinearGradient(0, my + mr, 0, my + mr + L.rise * (1.1 - tp)); tr.addColorStop(0, `rgba(255,255,255,${.4 * (1 - clamp(tp))})`); tr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = tr; g.fillRect(mx - mr * .5, my + mr, mr, L.rise * 1.2); }
         }
 
         // ---- threads: each beta to the main (stretch while the main leads, snap when they catch up) ----
         const settled = t >= TL.fly0 + .95;
-        if (t > TL.thread0) {
+        if (t > TL.thread0 && keep > 0) {
           const snap = Math.max(0, 1 - Math.abs(t - (TL.pump0 + .85)) / .25) * .45;
           g.lineWidth = .6;
           for (let i = 0; i < NB; i++) {
             const b = bpos[i], k = ease.out((t - TL.thread0 - i * .07) / .5); if (k <= 0) continue;
             const sh = t > TL.END ? Math.sin(t * 3 + i * 1.7) * .12 : 0;
-            g.globalAlpha = Math.min(1, .42 + sh + snap + (sinceP > 0 && sinceP < .9 ? hill(sinceP / .9) * .2 : 0));
+            g.globalAlpha = Math.min(1, .42 + sh + snap) * b.k;
             g.strokeStyle = '#fff'; g.beginPath(); g.moveTo(b.x, b.y - L.r * .9);
             g.lineTo(b.x + (mx - b.x) * k, (b.y - L.r * .9) + ((my + mr * .85) - (b.y - L.r * .9)) * k); g.stroke();
           }
@@ -151,20 +180,20 @@
         }
 
         // ---- the formation: betas, then the main on top ----
-        if (settled) for (let i = 0; i < NB; i++) coin(g, bpos[i].x, bpos[i].y, L.r * (1 + (t > TL.END ? Math.sin(t * 1.3 + BETA_PH[i]) * .03 : 0)), 1, 236);
+        if (settled) for (let i = 0; i < NB; i++) if (bpos[i].k > .02) coin(g, bpos[i].x, bpos[i].y, L.r * bpos[i].k, 1, 236);
         if (mr > .3) {
           coin(g, mx, my, mr, 1, 255);
           if (mr > 2.2) { g.lineWidth = .9; g.strokeStyle = 'rgb(140,140,140)'; g.beginPath(); g.arc(mx, my, mr * .66, 0, Math.PI * 2); g.stroke(); }
         }
         // the main's own scan pulses while it finds its team, and a soft ring on every idle pump
         if (t > TL.main1 - .3 && t < TL.scan0 + .4) { const k = (t - (TL.main1 - .3)) / 1.0; ring(g, mx, my, mr * (1.1 + k * 1.6), .5 * (1 - clamp(k)), 1); }
-        if (cyc >= 0 && sinceP < 1.1) ring(g, mx, my, mr * (1.15 + sinceP * 2.2), .4 * (1 - sinceP / 1.1), .8);
+        hands(g, gw, gh, t, L, mxn, myn, sinceP, A);
 
         // ---- sparkles as each beta arrives at the top ----
         for (let i = 0; i < NB; i++) {
           const ta = TL.pump0 + BETA_LAG[i] + .55, d = t - ta;
           if (d > 0 && d < .6) { const b = bpos[i], a = 1 - d / .6, o = L.r + 1.4 + d * 3; plus(g, b.x - o * .7, b.y - o * .7, 1.1, a); plus(g, b.x + o * .8, b.y - o * .5, .9, a * .8); }
-          if (cyc >= 0) { const d2 = sinceP - .6 - i * .035; if (d2 > 0 && d2 < .45) { const b = bpos[i]; plus(g, b.x + (i % 2 ? 1 : -1) * (L.r + 1.5), b.y - L.r - 1, .8, (1 - d2 / .45) * .7); } }
+
         }
 
         // ---- TEAM decodes, letter by letter, out of random glyphs ----
@@ -188,7 +217,7 @@
           gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(.5, 'rgba(255,255,255,.8)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
           g.fillStyle = gr; x = L.cx - total / 2; for (let i = 0; i < 4; i++) { g.fillText(word[i], x + ws[i] / 2, base2); x += ws[i] + gap; }
         }
-        if (newPump) A.ripple(mx, my);
+        if (newPump) A.ripple(L.cx, L.hy);
 
         if (!done) { try { opts.onProgress && opts.onProgress(clamp(t / TL.END)); } catch (e) { } if (t >= TL.END) finish(); }
         return false;
@@ -200,7 +229,7 @@
     setTimeout(() => { if (!done) api.skip(); }, TL.END * 1000 + 4000);
 
     api.skip = () => { if (done) return; skipAt = hero.t; finish(); hero.wake(); };
-    api.pulse = (x, y) => { const L = layout(hero.gw, hero.gh); pumpAt = timeOf(hero.t); hero.ripple(x == null ? L.cx : x, y == null ? L.my : y); };
+    api.pulse = (x, y) => { const L = layout(hero.gw, hero.gh); pumpAt = timeOf(hero.t); hero.ripple(x == null ? L.cx : x, y == null ? L.hy : y); };
     api.setLabels = (mainSym, betaSyms) => { labels = { main: String(mainSym || ''), betas: (betaSyms || []).map(String) }; };
     api.led = hero; api.TL = TL;
     Object.defineProperty(api, 'done', { get: () => done });

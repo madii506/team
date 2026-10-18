@@ -1,4 +1,4 @@
-/* TEAM: betas that actually follow the main. Every number on this page is read live; every action is a signature or a
+/* TEAM: a live pump.fun scanner that pairs every runner with its betas. Every number on this page is read live; every action is a signature or a
  * transaction you sign. */
 (() => {
   'use strict';
@@ -213,15 +213,15 @@
   async function loadScan() {
     if (SC.loading) return; SC.loading = true;
     try {
-      const d = await api('scan'); const same = SC.d && d.n === SC.d.n; SC.d = d;
-      if (same) SC.wait = Date.now() + 5000; else { renderScan(); renderRadar(); if (!SC.first) say(`Scan ${d.n}: ${d.totals.mains} mains, ${d.totals.tradeable} tradeable betas`); SC.first = false; }
+      const d = await api('scan'); const same = SC.d && d.n === SC.d.n; SC.d = d; if (same) SC.prev = d;
+      if (same) SC.wait = Date.now() + 5000; else { const prev = SC.prev; SC.prev = d; renderFeed(prev, d); lexUpdate(); renderScan(); renderRadar(); if (!SC.first) say(`Scan ${d.n}: ${d.totals.mains} mains, ${d.totals.tradeable} tradeable betas`); SC.first = false; }
     } catch (e) { SC.wait = Date.now() + 10000; if (!SC.d) $('#scBoard').innerHTML = `<div class="empty">${esc(e.message)} Retrying…</div>`; }
     SC.loading = false;
   }
   const selOf = m => { if (!SC.sel.has(m.mint)) SC.sel.set(m.mint, new Set(m.pick || [])); return SC.sel.get(m.mint); };
   function gapStrip(m) {
     const pts = m.betas.filter(b => b.tradeable && b.g1h != null), band = SC.d.band, X = g => (50 + Math.max(-40, Math.min(40, g)) / 40 * 50).toFixed(2);
-    const dots = pts.map(b => `<i class="gd ${b.state || ''}" style="left:${X(b.g1h)}%" title="$${esc(b.symbol)} ${pct(b.g1h)} vs the main, last hour"></i>`).join('');
+    const dots = pts.map(b => `<i class="gd ${b.state || ''}" style="left:${X(b.g1h)}%" data-gb="${esc(b.mint)}" data-tip="<b>$${esc(b.symbol)}</b> ${pct(b.g1h)} vs $${esc(m.symbol)} · last hour${b.state === 'behind' ? ' · the maker would buy' : b.state === 'ahead' ? ' · the maker would trim' : ''}"></i>`).join('');
     return `<div class="gs"><div class="gband" style="left:${X(-band)}%;right:${(100 - X(band)).toFixed(2)}%"></div><div class="gmid"></div>${dots}<span class="gl mono">behind</span><span class="gr mono">ahead</span></div>
       <div class="gsum mono">${pts.length ? `<b class="up">${m.behind}</b> behind · <b>${m.step}</b> in step · <b class="dn">${m.ahead}</b> ahead` : m.n ? 'no tradeable betas yet' : 'no betas yet'}</div>`;
   }
@@ -262,9 +262,11 @@
   }
   function renderScan() {
     const d = SC.d; if (!d) return; const { list, hidden } = scanList();
+    const before = new Map(); if (!reduce) $$('#scBoard .srw').forEach(r => before.set(r.dataset.m, r.getBoundingClientRect().top));
     $('#scBoard').innerHTML = list.length ? list.map(scanRow).join('') : `<div class="empty">${d.mains.length ? (SC.q ? 'Nothing in this scan matches that filter.' : 'None of these mains has a tradeable beta right now.') : 'No pump.fun runners on the boards right now.'}</div>`;
     $('#scNote').innerHTML = (hidden ? `${hidden} main${hidden > 1 ? 's' : ''} with no tradeable beta hidden · <button type="button" class="ul" id="scShow">show them</button> · ` : '') + `tradeable = at least ${usd(d.minLiq)} of liquidity · behind / ahead = more than ${d.band}% off the main's move over the last hour, the default band`;
     const sh = $('#scShow'); if (sh) sh.onclick = () => { $('#scOnly').checked = false; SC.only = false; renderScan(); };
+    if (before.size) $$('#scBoard .srw').forEach(r => { const y0 = before.get(r.dataset.m); if (y0 == null) return; const dy = y0 - r.getBoundingClientRect().top; r.style.animation = 'none'; if (Math.abs(dy) > 2) r.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: 650, easing: 'cubic-bezier(.2,.75,.2,1)' }); });
     scanText();
   }
   function scanText() {
@@ -272,6 +274,44 @@
     const down = Object.entries(d.src || {}).filter(([, v]) => v.fail && !v.ok).map(([k]) => k);
     $('#scTxt').innerHTML = `<b>scan #${d.n}</b> · ${s < 5 ? 'just now' : s + 's ago'} · <b>${t.mains}</b> pump.fun mains · <b>${t.betas}</b> betas found · <b>${t.tradeable}</b> tradeable · <b class="up">${t.behind}</b> behind their main${t.creates1h != null ? ` · <b>${t.creates1h}</b> launches read from Solana in the last hour` : ''} · took ${(d.took / 1000).toFixed(1)}s${down.length ? ` · <span class="dn">${down.join(', ')} not answering</span>` : ''}`;
   }
+  // what changed since the last scan (or, on the first one, where the biggest gaps are)
+  function renderFeed(prev, d) {
+    const out = [], pm = new Map(((prev && prev.mains) || []).map(m => [m.mint, new Map(m.betas.map(b => [b.mint, b]))]));
+    const it = (cls, html) => out.push(`<span><i class="${cls}"></i>${html}</span>`);
+    if (prev) for (const m of d.mains) {
+      const pb = pm.get(m.mint); if (!pb) { it('w', `<b>$${esc(m.symbol)}</b> joined the boards · ${usd(m.mc)}`); continue; }
+      for (const b of m.betas) { if (!b.tradeable) continue; const o = pb.get(b.mint);
+        if (!o) it('w', `<b>$${esc(b.symbol)}</b> joined <b>$${esc(m.symbol)}</b>'s betas`);
+        else if (b.state === 'behind' && o.state !== 'behind') it('g', `<b>$${esc(b.symbol)}</b> fell a band behind <b>$${esc(m.symbol)}</b> · ${pct(b.g1h)}`);
+        else if (b.state === 'ahead' && o.state !== 'ahead') it('r', `<b>$${esc(b.symbol)}</b> ran a band ahead of <b>$${esc(m.symbol)}</b> · ${pct(b.g1h)}`);
+        else if (b.state === 'step' && o.state && o.state !== 'step') it('', `<b>$${esc(b.symbol)}</b> is back in step with <b>$${esc(m.symbol)}</b>`);
+      }
+    }
+    if (out.length < 6) {
+      const all = d.mains.flatMap(m => m.betas.filter(b => b.tradeable && b.g1h != null && b.state !== 'step').map(b => ({ m, b }))).sort((x, y) => Math.abs(y.b.g1h) - Math.abs(x.b.g1h)).slice(0, 10);
+      for (const { m, b } of all) it(b.state === 'behind' ? 'g' : 'r', `<b>$${esc(b.symbol)}</b> ${b.state === 'behind' ? 'is' : 'runs'} ${pct(Math.abs(b.g1h))} ${b.state === 'behind' ? 'behind' : 'ahead of'} <b>$${esc(m.symbol)}</b> this hour`);
+      const fr = d.mains.flatMap(m => m.betas.filter(b => b.age != null).map(b => ({ m, b }))).sort((x, y) => x.b.age - y.b.age).slice(0, 3);
+      for (const { m, b } of fr) it('w', `newest: <b>$${esc(b.symbol)}</b> riding <b>$${esc(m.symbol)}</b> · ${mins(b.age)} old`);
+    }
+    if (!out.length) { $('#scFeed').hidden = true; return; }
+    const html = out.slice(0, 24).join(''); $('#scFeedIn').innerHTML = html + html; $('#scFeed').hidden = false;
+    $('#scFeedIn').style.animationDuration = Math.max(30, out.length * 6) + 's';
+  }
+  // the engine section explains the rule with a real beta from the last scan
+  function lexUpdate() {
+    const d = SC.d; let best = null;
+    for (const m of d.mains) for (const b of m.betas) if (b.tradeable && b.g1h != null && m.ch1h != null && b.ch1h != null && (!best || Math.abs(b.g1h) > Math.abs(best.b.g1h))) best = { m, b };
+    if (!best) { $('#lexT').textContent = 'No tradeable beta with a measurable move in this scan yet. The example fills in with the next one.'; return; }
+    const { m, b } = best, band = d.band, dir = v => v >= 0 ? 'up ' + pct(v).replace('+', '') : 'down ' + pct(Math.abs(v)).replace('+', '');
+    const act = b.g1h <= -band ? `a team pairing them would <b>buy $${esc(b.symbol)}</b> with ${S.cfg.defaults.buy}% of its free SOL, and buy again only if the gap widens by another full band` : b.g1h >= band ? `a team holding $${esc(b.symbol)} would <b>trim ${S.cfg.defaults.trim}% of that bag</b>, taking the overshoot off the table` : `a team would <b>wait</b>: the gap is inside the band, so there is nothing to do yet`;
+    $('#lexT').innerHTML = `Right now <b>$${esc(m.symbol)}</b> is ${dir(m.ch1h)} this hour while <b>$${esc(b.symbol)}</b> is ${dir(b.ch1h)}. That puts $${esc(b.symbol)} <b>${pct(Math.abs(b.g1h))} ${b.g1h < 0 ? 'behind' : 'ahead of'}</b> its main. With the default ${band}% band, ${act}. Across this scan, <b>${d.totals.behind}</b> tradeable betas sit a band behind their main and <b>${d.totals.ahead}</b> a band ahead. A live team measures from its own kickoff rather than the last hour, but the rule is the same.`;
+  }
+  function heroLive() {
+    const d = SC.d; if (!d) return; const left = Math.max(0, Math.ceil((d.at + d.every * 1000 - Date.now()) / 1000) + 1);
+    $('#hLiveT').innerHTML = innerWidth < 560 ? `live · <b>${d.totals.mains}</b> runners · <b>${d.totals.tradeable}</b> teamable betas · <b>${left}s</b>` : `live · scan <b>#${d.n}</b> · <b>${d.totals.mains}</b> pump.fun runners · <b>${d.totals.tradeable}</b> betas you can team with · next scan <b>${left}s</b>`;
+  }
+  $('#hLive').addEventListener('click', () => goTo('scan'));
+  $('#top').addEventListener('click', e => { if (e.target.closest('form,a,button,.hlive,.radar')) return; if (hero && hero.done && hero.pulse) hero.pulse(); });
   function renderRadar() {
     const top = SC.d.mains.filter(m => m.n).slice(0, 16); if (!top.length) return;
     const items = top.map(m => `<button type="button" data-goscan="${esc(m.mint)}">${av(m, 'sm')}<b>$${esc(m.symbol)}</b>${m.n} betas · ${m.behind} behind ${pctc(m.ch1h)}</button>`).join('');
@@ -281,7 +321,7 @@
     const d = SC.d; if (!d) return;
     const left = Math.max(0, Math.ceil((d.at + d.every * 1000 - Date.now()) / 1000) + 1);
     $('#scNext').textContent = left; $('#scRing').style.strokeDashoffset = (94.25 * (1 - Math.min(1, left / d.every))).toFixed(2);
-    const s = Math.round((Date.now() - d.at) / 1000); $('#radarAge').textContent = s < 5 ? 'live' : s + 's ago'; scanText();
+    const s = Math.round((Date.now() - d.at) / 1000); $('#radarAge').textContent = s < 5 ? 'live' : s + 's ago'; scanText(); heroLive();
     if (left === 0 && !document.hidden && Date.now() > SC.wait) loadScan();
   }, 1000);
   const mainOf = mint => SC.d && SC.d.mains.find(m => m.mint === mint);
@@ -305,6 +345,12 @@
     if (act === 'deep') { findBetas(m.mint); goTo('betas'); }
   });
   document.addEventListener('click', e => { const b = e.target.closest('[data-goscan]'); if (!b) return; e.preventDefault(); const mint = b.dataset.goscan; SC.open.add(mint); if (SC.only && mainOf(mint) && !mainOf(mint).tradeable) { SC.only = false; $('#scOnly').checked = false; } renderScan(); const row = $(`.srw[data-m="${mint}"]`); goTo(row || 'scan', 90); });
+  const tip = document.createElement('div'); tip.className = 'gtip'; document.body.appendChild(tip);
+  $('#scBoard').addEventListener('mouseover', e => { const d = e.target.closest('.gd'); if (!d) return; tip.innerHTML = d.dataset.tip; const r = d.getBoundingClientRect(); tip.style.left = (r.left + r.width / 2) + 'px'; tip.style.top = r.top + 'px'; tip.classList.add('on'); });
+  $('#scBoard').addEventListener('mouseout', e => { if (e.target.closest('.gd')) tip.classList.remove('on'); });
+  addEventListener('scroll', () => tip.classList.remove('on'), { passive: true });
+  $('#scBoard').addEventListener('mousemove', e => { const r = e.target.closest('.srw'); if (!r) return; const b = r.getBoundingClientRect(); r.style.setProperty('--mx', (e.clientX - b.left) + 'px'); r.style.setProperty('--my', (e.clientY - b.top) + 'px'); });
+  $('#scBoard').addEventListener('click', e => { const d = e.target.closest('.gd'); if (!d) return; e.stopPropagation(); tip.classList.remove('on'); const row = d.closest('.srw'); SC.open.add(row.dataset.m); row.classList.add('open'); const br = $(`.bt-r[data-b="${d.dataset.gb}"]`, row); if (br) { br.classList.remove('hl'); void br.offsetWidth; br.classList.add('hl'); } }, true);
   $('#scBoards').addEventListener('click', e => { const b = e.target.closest('[data-b]'); if (!b) return; $$('#scBoards button').forEach(x => x.classList.toggle('on', x === b)); SC.board = b.dataset.b; renderScan(); });
   $('#scSort').addEventListener('click', e => { const b = e.target.closest('[data-s]'); if (!b) return; $$('#scSort button').forEach(x => x.classList.toggle('on', x === b)); SC.sort = b.dataset.s; renderScan(); });
   $('#scOnly').addEventListener('change', e => { SC.only = e.target.checked; renderScan(); });
