@@ -18,7 +18,7 @@
   const GLYPH = 'ABCDEFGHJKLMNOPQRSUVWXYZ0123456789$#%&+';
 
   // the timeline, in seconds
-  const TL = { power: 1.1, feed0: .4, feed1: 2.6, main0: 1.2, main1: 2.3, scan0: 1.9, scan1: 3.1, fade0: 2.9, fade1: 3.4, fly0: 3.0, fly1: 4.4, thread0: 3.55, pump0: 4.45, lag: .25, col0: 5.2, col1: 5.9, hand0: 5.3, clasp: 6.3, part0: 7.45, part1: 8.0, exp0: 7.6, exp1: 8.55, word: 8.15, END: 9.2 };
+  const TL = { power: 1.1, feed0: .4, feed1: 2.6, main0: 1.2, main1: 2.3, scan0: 1.9, scan1: 3.1, fade0: 2.9, fade1: 3.4, fly0: 3.0, fly1: 4.4, thread0: 3.55, pump0: 4.45, lag: .25, col0: 1e9, col1: 1e9 + 1, hand0: 1e9, clasp: 1e9 + 1, part0: 1e9 + 2, part1: 1e9 + 3, exp0: -2, exp1: -1, word: 1e9, END: 6.1 };   // no handshake: the real team forms, pumps together, and the site opens
   // the finale: the team folds into two hands that meet and shake. One PNG pixel per LED dot, drawn at the same origin they make the handshake.
   const HW = [28, 34, 40, 46, 52, 58, 64, 78, 94, 112], HANDS = {};
   HW.forEach(w => { const l = new Image(), r = new Image(); l.src = '/img/hands/L' + w + '.png'; r.src = '/img/hands/R' + w + '.png'; HANDS[w] = { l, r, h: Math.ceil(w * .564) }; });
