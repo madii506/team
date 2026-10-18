@@ -48,7 +48,7 @@
   // where everything sits once the intro is over (the idle formation), in grid cells
   function layout(gw, gh) {
     const mob = gw < 70, m = Math.min(gw, gh);
-    const R = m * (mob ? .1 : .08), cx = gw / 2, my = gh * (mob ? .2 : .22), rise = gh * .12;
+    const R = m * (mob ? .115 : .1), cx = gw / 2, my = gh * (mob ? .25 : .27), rise = gh * .12;
     const rx = R * (mob ? 3.6 : 4.3), ry = R * 1.9, r = R * .38;
     const slots = [];
     for (let i = 0; i < NB; i++) { const a = (160 - i * (140 / (NB - 1))) * Math.PI / 180; slots.push({ x: cx + Math.cos(a) * rx, y: my + R * .6 + Math.sin(a) * ry }); }
@@ -204,27 +204,7 @@
 
         }
 
-        // ---- TEAM decodes, letter by letter, out of random glyphs ----
-        const fs = L.fs, ty = L.ty;
-        g.font = `800 ${fs}px I, Inter, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
-        try { g.letterSpacing = '0px'; } catch (e) { }
-        const word = 'TEAM', gap = fs * .08, ws = [...word].map(c => g.measureText(c).width), total = ws.reduce((a, b) => a + b, 0) + gap * 3;
-        let x = L.cx - total / 2; const base2 = ty + fs * .36;
-        for (let i = 0; i < 4; i++) {
-          const show = t - (TL.word + i * .1), settle = t - (TL.word + .35 + i * .18), mid = x + ws[i] / 2;
-          if (show > 0) {
-            const ch = settle >= 0 ? word[i] : GLYPH[Math.floor(t * 18 + i * 7) % GLYPH.length];
-            g.fillStyle = settle >= 0 ? 'rgb(232,232,232)' : 'rgb(150,150,150)'; g.fillText(ch, mid, base2);
-            if (settle >= 0) { g.lineWidth = .7; g.strokeStyle = 'rgb(120,120,120)'; g.strokeText(ch, mid, base2); }
-            if (settle >= 0 && settle < .25) { g.fillStyle = `rgba(255,255,255,${1 - settle * 4})`; g.fillText(ch, mid, base2); }
-          }
-          x += ws[i] + gap;
-        }
-        if (t > TL.word + 1.25) {                                     // a slow sweep of light across the word
-          const sw = ((t * .22) % 1.6 - .3) * gw, gr = g.createLinearGradient(sw - 10, 0, sw + 10, 0);
-          gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(.5, 'rgba(255,255,255,.8)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
-          g.fillStyle = gr; x = L.cx - total / 2; for (let i = 0; i < 4; i++) { g.fillText(word[i], x + ws[i] / 2, base2); x += ws[i] + gap; }
-        }
+        // (no wordmark on the page itself: the web of a real team is the hero)
         if (newPump) A.ripple(mx, my);
         last = { mx, my, mr, b: bpos.map(b => ({ x: b.x, y: b.y, r: L.r * b.k, k: b.k })) };
 

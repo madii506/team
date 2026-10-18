@@ -321,8 +321,8 @@
   }
   function webSet(team) {
     const el = $('#web'); WEB.team = team; if (!team) { el.innerHTML = ''; if (hero && hero.setCount) hero.setCount(6); return; }
-    const node = (c, cls, lab) => `<div class="wn ${cls}" data-wm="${esc(team.m.mint)}"${cls === 'b' ? ` data-wb="${esc(c.mint)}"` : ''}><span class="wi">${c.image ? `<img src="${esc(c.image)}" alt="" referrerpolicy="no-referrer" onerror="this.outerHTML='<i>${esc((c.symbol || '?')[0])}</i>'">` : `<i>${esc((c.symbol || '?')[0])}</i>`}</span><span class="wlab">${lab}</span></div>`;
-    el.innerHTML = node(team.m, 'm', `<b>$${esc(team.m.symbol)}</b> · the main<span class="wx"> · ${pct(team.m.ch1h)} 1h</span>`) + team.betas.map(b => node(b, 'b', `<b>$${esc(b.symbol)}</b> ${b.g1h != null ? `<span class="${b.g1h < 0 ? 'up' : b.g1h > SC.d.band ? 'dn' : ''}">${pct(b.g1h)}</span>` : ''}`)).join('');
+    const node = (c, cls, lab) => `<div class="wn ${cls}" data-wm="${esc(team.m.mint)}"${cls === 'b' ? ` data-wb="${esc(c.mint)}"` : ''} title="$${esc(c.symbol)}"><span class="wi">${c.image ? `<img src="${esc(c.image)}" alt="$${esc(c.symbol)}" referrerpolicy="no-referrer" onerror="this.outerHTML='<i>${esc((c.symbol || '?')[0])}</i>'">` : `<i>${esc((c.symbol || '?')[0])}</i>`}</span>${lab ? `<span class="wlab">${lab}</span>` : ''}</div>`;
+    el.innerHTML = node(team.m, 'm', '') + team.betas.map(b => node(b, 'b', `<b>$${esc(b.symbol)}</b> ${b.g1h != null ? `<span class="${b.g1h < 0 ? 'up' : b.g1h > SC.d.band ? 'dn' : ''}">${pct(b.g1h)}</span>` : ''}`)).join('');
     if (hero && hero.setCount) hero.setCount(team.betas.length);
     heroLive(); webLoop();
   }
