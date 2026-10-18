@@ -428,13 +428,20 @@ async function buildScan(prev) {
     if (prevC) { prevC.src = [...new Set([...prevC.src, from])]; for (const f of ['mc', 'liq', 'image', 'ch5m', 'ch1h', 'ch24', 'created', 'vol1h', 'holders']) if (prevC[f] == null || prevC[f] === 0) prevC[f] = c[f]; return; }
     cr.by.set(c.mint, { ...c, src: [from] });
   };
-  await pool(crowds.filter(c => c.keys.length), 6, async cr => {
-    const k = cr.keys[0];
-    await Promise.all([
-      getJson(JUP + '/tokens/v2/search?query=' + encodeURIComponent(k), {}, 7000).then(j => { tick('jupiter', 1); (Array.isArray(j) ? j : []).forEach(t => add(cr, jupShape(t), 'jupiter')); }).catch(() => tick('jupiter', 0)),
-      getJson(DEX + '/latest/dex/search?q=' + encodeURIComponent(k), {}, 7000).then(d => { tick('dexscreener', 1); for (const p of (d.pairs || [])) if (p.chainId === 'solana') add(cr, shape(p), 'dexscreener'); }).catch(() => tick('dexscreener', 0)),
-    ]);
-  });
+  const keyed = crowds.filter(c => c.keys.length), nap = ms => new Promise(r => setTimeout(r, ms));
+  await Promise.all([
+    // Dexscreener answers bursts fine
+    pool(keyed, 5, cr => getJson(DEX + '/latest/dex/search?q=' + encodeURIComponent(cr.keys[0]), {}, 7000).then(d => { tick('dexscreener', 1); for (const p of (d.pairs || [])) if (p.chainId === 'solana') add(cr, shape(p), 'dexscreener'); }).catch(() => tick('dexscreener', 0))),
+    // Jupiter's free API refuses bursts: one keyword at a time, backing off when it says no
+    (async () => {
+      const tj = Date.now();
+      for (const cr of keyed.slice(0, 12)) {
+        if (Date.now() - tj > 8000) break;
+        try { const j = await getJson(JUP + '/tokens/v2/search?query=' + encodeURIComponent(cr.keys[0]), {}, 6000); tick('jupiter', 1); (Array.isArray(j) ? j : []).forEach(t => add(cr, jupShape(t), 'jupiter')); await nap(250); }
+        catch (e) { tick('jupiter', 0); await nap(1300); }
+      }
+    })(),
+  ]);
   // 3. launches read from Solana in the last day, before anyone has indexed them
   let creates1h = null;
   try {
@@ -452,6 +459,12 @@ async function buildScan(prev) {
     }
     tick('solana', 1);
   } catch (e) { tick('solana', 0); }
+  // Jupiter's numbers (5m / 1h / 24h moves, total liquidity, icons) for every beta it did not already describe, 100 per call
+  try {
+    const need = [...new Set(crowds.flatMap(cr => [...cr.by.values()].filter(c => !c.src.includes('jupiter')).map(c => c.mint)))].slice(0, 400);
+    const info = await jupInfo(need);
+    for (const cr of crowds) for (const c of cr.by.values()) { const j = info[c.mint]; if (!j) continue; for (const f of ['mc', 'liq', 'ch5m', 'ch1h', 'ch24', 'image', 'holders', 'created', 'vol1h', 'bonded']) if (j[f] != null && j[f] !== 0) c[f] = j[f]; }
+  } catch (e) { }
   // 4. where every beta sits against its main right now
   const prevMains = new Map(((prev && prev.mains) || []).map(m => [m.mint, new Set((m.all || []).concat((m.betas || []).map(b => b.mint)))]));
   let totB = 0, totT = 0, totBehind = 0, totAhead = 0;
