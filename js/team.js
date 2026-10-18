@@ -308,8 +308,8 @@
   }
   function heroLive() {
     const d = SC.d; if (!d) return; const left = Math.max(0, Math.ceil((d.at + d.every * 1000 - Date.now()) / 1000) + 1), w = WEB.team;
-    const txt = w ? `<span class="hlm">${av(w.m, 'sm')}<b>$${esc(w.m.symbol)}</b></span> + <b>${w.betas.length}</b> beta${w.betas.length > 1 ? 's' : ''}${innerWidth < 560 ? '' : ' you can team right now'}` : `live · <b>${d.totals.mains}</b> pump.fun runners · <b>${d.totals.tradeable}</b> teamable betas`;
-    $('#hLiveT').innerHTML = txt + (innerWidth < 560 ? '' : ` · next scan <b>${left}s</b>`); $('#hTeam').hidden = !w;
+    const txt = w ? `<span class="hlm">${av(w.m, 'sm')}<b>$${esc(w.m.symbol)}</b></span> + <b>${w.betas.length}</b> beta${w.betas.length > 1 ? 's' : ''}${innerWidth < 720 ? '' : ' you can team right now'}` : `live · <b>${d.totals.mains}</b> pump.fun runners · <b>${d.totals.tradeable}</b> teamable betas`;
+    $('#hLiveT').innerHTML = txt + (innerWidth < 720 ? '' : ` · next scan <b>${left}s</b>`); $('#hTeam').hidden = !w;
   }
   /* ---------------- the live web: the hero's team is a real main and its real betas, cycling through the scan ---------------- */
   const WEB = { list: [], i: 0, team: null, raf: 0, t: 0 };
@@ -317,7 +317,7 @@
     const d = SC.d; if (!d) return [];
     const pool2 = d.mains.filter(m => m.tradeable >= 3), base = pool2.length >= 2 ? pool2 : d.mains.filter(m => m.tradeable >= 1);
     return base.sort((a, b) => (b.tradeable - a.tradeable) || (b.behind - a.behind) || ((b.vol1h || 0) - (a.vol1h || 0))).slice(0, 6)
-      .map(m => ({ m, betas: m.betas.filter(b => b.tradeable).sort((a, b) => (!!b.image - !!a.image) || ((b.liq || 0) - (a.liq || 0))).slice(0, 6) }));
+      .map(m => ({ m, betas: m.betas.filter(b => b.tradeable).sort((a, b) => (!!b.image - !!a.image) || ((b.g1h != null) - (a.g1h != null)) || ((b.liq || 0) - (a.liq || 0))).slice(0, 6) }));
   }
   function webSet(team) {
     const el = $('#web'); WEB.team = team; if (!team) { el.innerHTML = ''; if (hero && hero.setCount) hero.setCount(6); return; }
