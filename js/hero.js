@@ -49,7 +49,7 @@
   function layout(gw, gh) {
     const mob = gw < 70, m = Math.min(gw, gh);
     const R = m * (mob ? .115 : .1), cx = gw / 2, my = gh * (mob ? .25 : .27), rise = gh * .12;
-    const rx = R * (mob ? 3.6 : 4.3), ry = R * 1.9, r = R * .38;
+    const rx = R * (mob || gw < 115 ? 3.5 : 4.3), ry = R * 1.9, r = R * .38;
     const slots = [];
     for (let i = 0; i < NB; i++) { const a = (160 - i * (140 / (NB - 1))) * Math.PI / 180; slots.push({ x: cx + Math.cos(a) * rx, y: my + R * .6 + Math.sin(a) * ry }); }
     const fs = mob ? Math.min(gh * .1, gw * .22) : Math.min(gh * .12, gw * .1), ty = gh * (mob ? .46 : .56);
